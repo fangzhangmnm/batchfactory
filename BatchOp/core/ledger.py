@@ -3,14 +3,14 @@ import os
 import jsonlines,json
 import aiofiles,asyncio
 from copy import deepcopy
-from ..lib.utils import _to_list, _deep_update
+from ..lib.utils import _to_list_2, _deep_update
 
 COMPACT_ON_RESUME=False
 DELETE_NONE=True
 
-# TODO autocast
-
-class Ledger:
+class _Ledger:
+    """Cache synced storage based on jsonlines and atomic append
+    also supports compact and autocast on retrieve."""
     def __init__(self, cache_path: str):
         self.cache_path = cache_path
         os.makedirs(os.path.dirname(cache_path), exist_ok=True)
@@ -28,7 +28,7 @@ class Ledger:
         self._rewrite_cache(list(self._index.values()))
 
     def append(self, records:Any|List, allow_override:bool=False,serializer=None):
-        records=_to_list(records)
+        records=_to_list_2(records)
         if serializer is not None:
             records = [serializer(item) for item in records]
         for item in records:
@@ -39,11 +39,11 @@ class Ledger:
         self._append_cache(records)
     def update(self,updates:Dict|List,compact=False,serializer=None):
         if serializer is not None:
-            updates = [serializer(item) for item in _to_list(updates)]
+            updates = [serializer(item) for item in _to_list_2(updates)]
         self._update_many(updates,sync=True,compact=compact)
     async def update_async(self,updates:Dict|List,serializer=None):
         if serializer is not None:
-            updates = [serializer(item) for item in _to_list(updates)]
+            updates = [serializer(item) for item in _to_list_2(updates)]
         await self._update_many(updates,sync=False,compact=False)
     def filter(self, predicate:Callable[[Dict|Any], bool],builder=None)->List[Dict|Any]:
         """returns a list of deepcopied records that match the predicate function"""
@@ -61,7 +61,7 @@ class Ledger:
         return idx in self._index
     def remove(self, idx:str|List):
         """removes a record or a list of records by idx"""
-        idx= _to_list(idx)
+        idx= _to_list_2(idx)
         for i in idx:
             if i in self._index:
                 del self._index[i]
@@ -69,7 +69,7 @@ class Ledger:
 
     def _update_many(self, updates:Dict|List, sync=True, compact=False):
         if (not sync) and compact: raise ValueError("Cannot compact while updating asynchronously.")
-        updates= _to_list(updates)
+        updates= _to_list_2(updates)
         for item in updates:
             _deep_update(self._index.setdefault(item['idx'],{}), deepcopy(item), delete_none=DELETE_NONE)
         if sync:
@@ -80,19 +80,19 @@ class Ledger:
         else:
             return self._append_cache_async(updates)
     def _append_cache(self,records:Dict|List):
-        records = _to_list(records)
+        records = _to_list_2(records)
         with jsonlines.open(self.cache_path, mode='a') as writer:
             for item in records:
                 writer.write(item)
     def _rewrite_cache(self,records:Dict|List):
-        records = _to_list(records)
+        records = _to_list_2(records)
         tmp_path = self.cache_path + '.tmp'
         with jsonlines.open(tmp_path, mode='w') as writer:
             for item in records:
                 writer.write(item)
         os.replace(tmp_path, self.cache_path)
     async def _append_cache_async(self, records:Dict|List):
-        records = _to_list(records)
+        records = _to_list_2(records)
         text="".join(json.dumps(item) + "\n" for item in records)
         async with self._lock:
             async with aiofiles.open(self.cache_path,mode='a',encoding='utf-8') as f:
@@ -107,6 +107,6 @@ class Ledger:
 
 
 __all__ = [
-    'Ledger',
+    '_Ledger',
 ]
 

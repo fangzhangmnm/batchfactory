@@ -14,19 +14,19 @@ client_desc = {
 }
 
 model_desc = {
-    'o3-mini-2025-01-31':{
+    'o3-mini-2025-01-31@openai':{
         'price_per_input_token_M':0.55,
         'price_per_output_token_M':2.20
     },
-    'gpt-4o-2024-08-06':{
+    'gpt-4o-2024-08-06@openai':{
         'price_per_input_token_M':1.25,
         'price_per_output_token_M':5
     },
-    'gpt-4o-2024-11-20':{
+    'gpt-4o-2024-11-20@openai':{
         'price_per_input_token_M':1.25,
         'price_per_output_token_M':5
     },
-    'gpt-4o-mini-2024-07-18':{
+    'gpt-4o-mini-2024-07-18@openai':{
         'price_per_input_token_M':0.075,
         'price_per_output_token_M':0.3
     },

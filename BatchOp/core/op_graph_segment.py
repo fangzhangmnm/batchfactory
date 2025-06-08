@@ -53,7 +53,7 @@ def _allow_single_predecessor(node:BaseOp):
     return not isinstance(node,(InputOp,MergeOp))
 def _allow_single_successor(node:BaseOp):
     # OutputOp is not terminating, it passes entries to the next node
-    return not isinstance(node, (RouterOp))
+    return not isinstance(node, (SplitOp))
 
 
 __all__ = [

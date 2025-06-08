@@ -29,11 +29,14 @@ class LLMResponse(BaseModel):
     completion_tokens: int
 
 def get_provider_name(model:str) -> str:
-    return model.split('@', 1)[-1] if '@' in model else 'openai'
+    return model.split('@', 1)[-1]
 def get_model_name(model:str) -> str:
-    return model.split('@', 1)[0] if '@' in model else model
+    return model.split('@', 1)[0]
+def get_model_provider_str(model,provider):
+    return model+'@'+provider if '@' not in model else model
 
-class OpenAIClientCache:
+
+class LLMClientHub:
     def __init__(self):
         self.clients = {}
         self.lock = Lock()
@@ -61,7 +64,7 @@ class OpenAIClientCache:
 
 
 def immediately_query(query_str:str,model:str,max_tokens:int=4096,token_counter:TokenCounter=None) -> str:
-    client = openai_client_cache.get_client(get_provider_name(model), async_=False)
+    client = llm_client_hub.get_client(get_provider_name(model), async_=False)
     completion = client.chat.completions.create(
         model=get_model_name(model),
         messages=[
@@ -70,7 +73,7 @@ def immediately_query(query_str:str,model:str,max_tokens:int=4096,token_counter:
         max_completion_tokens=max_tokens
     )
     if token_counter:
-        input_price_M, output_price_M = openai_client_cache.get_price_M(model)
+        input_price_M, output_price_M = llm_client_hub.get_price_M(model)
         token_counter.update(
             input_tokens=completion.usage.input_tokens,
             output_tokens=completion.usage.output_tokens,
@@ -79,14 +82,23 @@ def immediately_query(query_str:str,model:str,max_tokens:int=4096,token_counter:
         )
     return completion.choices[0].message.content
 
-openai_client_cache = OpenAIClientCache()
+llm_client_hub = LLMClientHub()
+
+def compute_llm_cost(response:LLMResponse,provider)->float:
+    input_price_M, output_price_M = llm_client_hub.get_price_M(get_model_provider_str(response.model, provider))
+    total_cost = (
+        response.prompt_tokens * input_price_M +
+        response.completion_tokens * output_price_M
+    )/1e6
+    return total_cost
 
 __all__ = [
     "LLMMessage",
     "LLMRequest",
     "LLMResponse",
-    "openai_client_cache",
+    "llm_client_hub",
     "immediately_query",
     "get_provider_name",
     "get_model_name",
+    "compute_llm_cost",
 ]

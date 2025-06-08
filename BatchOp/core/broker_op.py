@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from typing import Union, List, Any, Tuple, Iterator
 
 from .entry import Entry
-from .ledger import Ledger
+from .ledger import _Ledger
 from .broker import Broker, BrokerJobStatus
 from ..lib.utils import _make_list_of_list, _dict_to_dataclass
 from .op_node import BaseOp
@@ -22,7 +22,7 @@ class BrokerOp(BaseOp, ABC):
                  status_field: str = "status",
     ):
         super().__init__()
-        self._ledger = Ledger(cache_path)
+        self._ledger = _Ledger(cache_path)
         self.broker = broker
         self.status_field = status_field
     def resume(self):

@@ -1,9 +1,9 @@
 from ..core import *
 from ..ops import *
-from ..lib.utils import _to_list
+from ..lib.utils import _to_list_2
 
 class SeparateCotOp(AtomicOp):
-    def __init__(self, label="</think>",field="llm_response_text",cot_field:str|None="cot"):
+    def __init__(self, label="</think>",field="text",cot_field:str|None="cot"):
         super().__init__()
         self.label = label
         self.field = field
@@ -19,9 +19,9 @@ class SeparateCotOp(AtomicOp):
         return entry
     
 class DropLLMRejectionOp(AtomicOp):
-    def __init__(self,startings:str|List,field="llm_response_text"):
+    def __init__(self,startings:str|List,field="text"):
         super().__init__()
-        self.startings = _to_list(startings)
+        self.startings = _to_list_2(startings)
         self.startings = [s.lower().strip() for s in self.startings]
         self.field = field
     def update(self,entry:Entry):
@@ -31,9 +31,8 @@ class DropLLMRejectionOp(AtomicOp):
                 return None
         return entry
 
-def LLMPostProcessingChain(
-    keep_cot:bool=False,
-)->OpGraphSegment:
-    chain = DropFailedOp("status") | ExtractResponseOp() | SeparateCotOp()
-    chain = chain | DropFieldOp(["llm_request","llm_response","status"]+([] if keep_cot else ["cot"]))
-    return chain
+
+__all__ = [
+    "SeparateCotOp",
+    "DropLLMRejectionOp",
+]

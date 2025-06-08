@@ -13,9 +13,10 @@ class BaseReaderOp(InputOp, ABC):
     def __init__(self,
                     fields: List[str],
                     offset: int = 0,
-                    max_count: int = None
+                    max_count: int = None,
+                    fire_once: bool = True
                     ):
-        super().__init__()
+        super().__init__(fire_once=fire_once)
         self.fields = fields
         self.offset = offset
         self.max_count = max_count
@@ -52,9 +53,10 @@ class ReadJsonOp(BaseReaderOp):
                  idx_field: str = None,
                  hash_fields: Union[str, List[str]] = None,
                  offset: int = 0,
-                 max_count: int = None
+                 max_count: int = None,
+                 fire_once: bool = True
                  ):
-        super().__init__(fields=fields, offset=offset, max_count=max_count)
+        super().__init__(fields=fields, offset=offset, max_count=max_count, fire_once=fire_once)
         if not idx_field and not hash_fields:
             raise ValueError("At least one of idx_field or hash_fields must be provided.")
         self.glob_str = glob_str
@@ -93,10 +95,11 @@ class ReadMarkdownLinesOp(BaseReaderOp):
                     directory_str_field: str|None = None,
                     offset: int = 0,
                     max_count: int|None = None,
+                    fire_once: bool = True
                     ):
         fields = [keyword_field, directory_list_field, directory_str_field]
         fields = [f for f in fields if f]
-        super().__init__(fields=fields, offset=offset, max_count=max_count)
+        super().__init__(fields=fields, offset=offset, max_count=max_count, fire_once=fire_once)
         self.glob_str = glob_str
         self.keyword_field = keyword_field
         self.directory_list_field = directory_list_field

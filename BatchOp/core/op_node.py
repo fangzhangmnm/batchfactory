@@ -43,39 +43,62 @@ class MergeOp(BaseOp, ABC):
     Used for merging multiple versions of the entry with same idx into one.
     Used for voting, looping, etc
     Do not guarantee entry immutability
+        need_all_inputs: if True, an entry with the same idx will be created only if all inputs are present.
     """
-    def __init__(self,input_leg_num:int):
+    def __init__(self,n_inputs:int):
         super().__init__()
-        self.input_leg_num = input_leg_num
+        self.n_inputs = n_inputs
     @abstractmethod
     def merge(self, entries: List[Entry]) -> Entry|None:
         "Merge entries taken from different inputs with the same idx into one entry."
         pass
     def merge_batch(self, entries:List[List[Entry]]) -> List[Entry]:
-        raise NotImplementedError("TODO, think about fixed number of legs, and wait for all legs to finish logic.")
+        merged_inputs={}
+        for port, port_entries in enumerate(entries):
+            for entry in port_entries:
+                if entry.idx not in merged_inputs:
+                    merged_inputs[entry.idx] = {}
+                merged_inputs[entry.idx][port] = entry
+        output_entries = []
+        for idx, port_entries in merged_inputs.items():
+            if all(port in port_entries for port in range(self.n_inputs)):
+                merged_entry = [port_entries[port] for port in range(self.n_inputs)]
+                merged_entry = self.merge(merged_entry)
+                if merged_entry is not None:
+                    output_entries.append(merged_entry)
+        return output_entries
+
     
-class RouterOp(BaseOp, ABC):
+class SplitOp(BaseOp, ABC):
     """
     Used for routing an entry to different outputs legs based on some condition.
     Used for conditional processing, looping, etc.
     Do not guarantee entry immutability
     """
-    def __init__(self, output_leg_num: int):
+    def __init__(self, n_outputs: int):
         super().__init__()
-        self.output_leg_num = output_leg_num
+        self.n_outputs = n_outputs
     @abstractmethod
     def route(self, entry: Entry) -> List[Tuple[int, Entry]]:
         """Route an entry to different outputs based on some condition.
         returns (output_leg_index, entry) tuples."""
         pass
     def route_batch(self,entries: List[Entry]) -> List[List[Entry]]:
-        raise NotImplementedError("TODO, think about fixed number of legs")
+        output_entries = [[] for _ in range(self.n_outputs)]
+        for entry in entries:
+            routes = self.route(entry)
+            for output_leg, routed_entry in routes:
+                if routed_entry is not None:
+                    output_entries[output_leg].append(routed_entry)
+        return output_entries
 
 class InputOp(BaseOp, ABC):
     """
     Used for generating new entries based on some input.
     Used for loading dataset, generating rng, etc
     """
+    def __init__(self,fire_once=True):
+        self.fire_once = fire_once
     @abstractmethod
     def generate_batch(self)-> List[Entry]:
         "Generate a list of entries based on some input."
@@ -109,7 +132,7 @@ __all__ = [
     'BaseOp',
     'AtomicOp',
     'MergeOp',
-    'RouterOp',
+    'SplitOp',
     'InputOp',
     'OutputOp',
 ]

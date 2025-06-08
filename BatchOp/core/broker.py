@@ -8,8 +8,8 @@ import aiofiles,asyncio
 from pydantic import BaseModel
 from enum import Enum
 
-from ..lib.utils import _to_list, _to_record, _to_BaseModel
-from .ledger import Ledger
+from ..lib.utils import _to_list_2, _to_record, _to_BaseModel
+from .ledger import _Ledger
 
 class BrokerJobStatus(str,Enum):
     QUEUED = "queued"
@@ -36,11 +36,11 @@ class Broker(ABC):
     def __init__(self, cache_path: str, request_cls:type[BaseModel]=None, response_cls:type[BaseModel]=None):
         self.request_cls = request_cls
         self.response_cls = response_cls
-        self._ledger = Ledger(cache_path)
+        self._ledger = _Ledger(cache_path)
     def resume(self):
         self._ledger.resume()
     def enqueue(self, requests: List[BrokerJobRequest]|BrokerJobRequest):
-        requests = list({r.job_idx:r for r in _to_list(requests) if not self._ledger.contains(r.job_idx)}.values())
+        requests = list({r.job_idx:r for r in _to_list_2(requests) if not self._ledger.contains(r.job_idx)}.values())
         self._ledger.append(requests,
                             serializer = lambda r: {
                                 "idx": r.job_idx,
@@ -49,7 +49,7 @@ class Broker(ABC):
                                 "meta": r.meta or {},
                             })
     def dequeue(self, job_idx:str|List):
-        self._ledger.remove(_to_list(job_idx))
+        self._ledger.remove(_to_list_2(job_idx))
 
     def get_job_responses(self)->List[BrokerJobResponse]:
         return self._ledger.filter(
@@ -62,7 +62,7 @@ class Broker(ABC):
                 )
         )
     def get_job_requests(self, status:List|BrokerJobStatus)->List[BrokerJobRequest]:
-        status=_to_list(status)
+        status=_to_list_2(status)
         return self._ledger.filter(
             lambda x: x.status in status,
             builder=lambda record: BrokerJobRequest(
@@ -72,6 +72,8 @@ class Broker(ABC):
                 meta=record.get("meta", {}),
             )
         )
+    def __repr__(self):
+        return f"{self.__class__.__name__}({self._ledger.cache_path})"
 
 class DeferredBroker(Broker, ABC):
     @abstractmethod

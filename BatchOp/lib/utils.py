@@ -58,8 +58,12 @@ def _to_BaseModel(obj, cls=None, allow_None=True) -> BaseModel|None:
     else: return obj
 def _is_batch(x):
     return isinstance(x, Iterable) and not isinstance(x, (str,bytes,Mapping)) and not hasattr(x, '__fields__')
-def _to_list(items):
-    return items if _is_batch(items) else [items]
+# def _to_list(items):
+#     return items if _is_batch(items) else [items]
+def _to_list_2(x):
+    if x is None or x==[]: return []
+    if _is_batch(x): return list(x)
+    else: return [x]
 def _make_list_of_list(x):
     if x is None or x==[]: return [[]]
     if not isinstance(x, list): return [[x]]
@@ -92,6 +96,37 @@ def _setdefault_hierarchy(dict,path:List[str],default=None):
         current = current[key]
     return current.setdefault(path[-1], default)
 
+class FieldsRouter:
+    """Usage:
+        FieldsRouter([1,2],[3])
+        FieldsRouter({'a': 'b', 'c': 'd'})
+        FieldsRouter("input",["output1", "output2"])
+        FieldsRouter("input")
+    """
+    froms: List[str]
+    tos: List[str]
+    def __init__(self,*args):
+        if len(args)>2:raise ValueError("FieldsRouter accepts 1 or 2 arguments.")
+        if len(args)==1:args=(args[0], [])
+        source, other_source = args
+        if isinstance(source,FieldsRouter):
+            self.froms,self.tos = source.froms,source.tos
+        elif isinstance(source,dict):
+            self.froms, self.tos = zip(*source.items())
+            self.froms, self.tos = list(self.froms), list(self.tos)
+        else:
+            self.froms = _to_list_2(source)
+            self.tos = _to_list_2(other_source)
+    def read_tuple(self, entry:Dict) -> tuple:
+        return tuple(entry[field] for field in self.froms)
+    def write_tuple(self, entry:Dict, values:tuple):
+        values = _to_list_2(values)
+        if len(values) != len(self.tos):
+            raise ValueError(f"Expected {len(self.tos)} values, got {len(values)}.")
+        for field, value in zip(self.tos, values):
+            entry[field] = value
+        
+
 
 __all__ = [
     "format_number",
@@ -101,10 +136,12 @@ __all__ = [
     "_to_record",
     "_to_BaseModel",
     "_is_batch",
-    "_to_list"
+    # "_to_list",
+    "_to_list_2",
     "_make_list_of_list",
     "_dict_to_dataclass",
     "_deep_update",
     "_number_dict_to_list",
     "_setdefault_hierarchy",
+    "FieldsRouter"
 ]

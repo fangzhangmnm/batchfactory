@@ -36,6 +36,7 @@ class ConcurrentLLMCallBroker(ImmediateBroker):
         self.verbose = 0
 
     def process_jobs(self, jobs: List[BrokerJobRequest]):
+        print(f"{repr(self)}: processing {len(jobs)} jobs.")
         asyncio.run(self._process_requests_async(jobs))
 
     def _get_dummy_response(self, request:LLMRequest) -> LLMResponse:
@@ -78,9 +79,9 @@ class ConcurrentLLMCallBroker(ImmediateBroker):
         try:
             request:LLMRequest = job.request_object
             provider = get_provider_name(request.model)
-            client:AsyncOpenAI = await openai_client_cache.get_client_async(provider, async_=True)
+            client:AsyncOpenAI = await llm_client_hub.get_client_async(provider, async_=True)
             response:LLMResponse = await self._call_llm_async(client, request)
-            input_price_M, output_price_M = openai_client_cache.get_price_M(request.model)
+            input_price_M, output_price_M = llm_client_hub.get_price_M(request.model)
             async with self.global_lock:
                 self.token_counter.update(
                     input_tokens=response.prompt_tokens,
