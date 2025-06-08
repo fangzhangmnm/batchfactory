@@ -32,13 +32,18 @@ class DropFieldOp(AtomicOp):
         return entry
     
 class RenameOp(AtomicOp):
-    def __init__(self, rename_mapping:dict):
+    def __init__(self, rename_mapping:dict|str, other=None):
         super().__init__()
+        if isinstance(rename_mapping, str) and other is not None:
+            rename_mapping = {rename_mapping: other}
+        if not isinstance(rename_mapping, dict):
+            raise ValueError("rename_mapping must be a dictionary or a string with a corresponding other value.")
         self.rename_mapping = rename_mapping
     def update(self, entry):
         for old_field, new_field in self.rename_mapping.items():
             if old_field in entry.data:
                 entry.data[new_field] = entry.data.pop(old_field)
+        return entry
 
 class ApplyOp(AtomicOp):
     """Applies a function to the entry data."""
