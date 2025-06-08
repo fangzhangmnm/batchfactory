@@ -1,6 +1,6 @@
 import hashlib
 from string import Formatter
-from typing import Dict, Iterable, Union
+from typing import Dict, Iterable, Union, List
 from pydantic import BaseModel
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
@@ -84,6 +84,13 @@ def _number_dict_to_list(d:Dict, default_value=None) -> list:
     max_key= max(d.keys(), default=0)
     return [d.get(i, default_value) for i in range(max_key + 1)]
 
+def _setdefault_hierarchy(dict,path:List[str],default=None):
+    current = dict
+    for key in path[:-1]:
+        if key not in current:
+            current[key] = {}
+        current = current[key]
+    return current.setdefault(path[-1], default)
 
 
 __all__ = [
@@ -98,5 +105,6 @@ __all__ = [
     "_make_list_of_list",
     "_dict_to_dataclass",
     "_deep_update",
-    "_number_dict_to_list"
+    "_number_dict_to_list",
+    "_setdefault_hierarchy",
 ]

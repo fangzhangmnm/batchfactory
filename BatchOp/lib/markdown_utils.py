@@ -1,4 +1,6 @@
 import re
+from .utils import _setdefault_hierarchy
+
 def iter_markdown_lines(markdown_path):
     '''yields (directory,keyword,''), each line is a leaf'''
     current_path=[]
@@ -66,4 +68,28 @@ def write_markdown(entries,markdown_path,mode='w'):
             f.write(content+'\n\n')
             old_directory=directory
 
-__all__ = ['iter_markdown_lines', 'iter_markdown_entries', 'write_markdown']
+def markdown_lines_to_dict(markdown_path):
+    '''returns a hierarchical dictionary of lists, where entries are non-empty lines, and keys are markdown headings'''
+    result = {}
+    for directory, keyword, _ in iter_markdown_entries(markdown_path):
+        _setdefault_hierarchy(result, directory, []).append(keyword)
+    return result
+
+def markdown_entries_to_dict(markdown_path):
+    '''returns a hierarchical dictionary of texts, where keys are markdown headings'''
+    result = {}
+    for directory, keyword, content in iter_markdown_entries(markdown_path):
+        _setdefault_hierarchy(result, directory, {})[keyword] = content
+    return result
+
+
+
+
+
+__all__ = [
+    'iter_markdown_lines',
+    'iter_markdown_entries',
+    'write_markdown',
+    'markdown_lines_to_dict',
+    'markdown_entries_to_dict',
+]

@@ -50,7 +50,7 @@ class PromptOp(AtomicOp):
         return hash_text(*texts)
 
 class ExtractResponseOp(AtomicOp):
-    def __init__(self, input_field="llm_response", output_field="response_text"):
+    def __init__(self, input_field="llm_response", output_field="llm_response_text"):
         super().__init__()
         self.input_field = input_field
         self.output_field = output_field

@@ -16,12 +16,12 @@ class OpGraph:
         # execution order is determined by order in the nodes array
         self.nodes = nodes
         self.edges = edges
-        self.output_cache:Dict[Tuple[BaseOp,int],List[Entry]]={}
+        self.output_cache:Dict[Tuple[BaseOp,int],Dict[Entry]]={}
     def _collect_inputs(self,node)->List[List[Entry]]:
         inputs={}
         for edge in self.edges:
             if edge.target == node:
-                port_inputs= self.output_cache.get((edge.source, edge.source_port), [])
+                port_inputs= list(self.output_cache.get((edge.source, edge.source_port), {}).values())
                 inputs.setdefault(edge.target_port, []).extend(port_inputs)
         return _number_dict_to_list(inputs,default_value=[])
     def _pump_node(self,node,dispatch_broker:bool=False):
@@ -46,7 +46,7 @@ class OpGraph:
         else:
             raise NotImplementedError(f"Operation {node} is not implemented.")
         for port, output in outputs.items():
-            self.output_cache.setdefault((node, port), []).extend(output)
+            self.output_cache.setdefault((node, port), {}).update({e.idx:e for e in output})
     def pump(self, dispatch_broker:bool=False):
         for node in self.nodes:
             self._pump_node(node, dispatch_broker=dispatch_broker)
