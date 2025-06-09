@@ -4,7 +4,7 @@ from ..lib.utils import get_format_keys, hash_text
 from ..brokers.concurrent_llm_call import ConcurrentLLMCallBroker
 from ..core.broker import BrokerJobRequest, BrokerJobResponse, BrokerJobStatus
 from .common_op import DropFieldOp
-from ..lib.utils import  _to_record, _to_BaseModel, _dict_to_dataclass, _to_list_2
+from ..lib.utils import  _to_record, _to_BaseModel, _dict_to_dataclass, _to_list_2, _pick_field_or_value_strict
 import copy
 from typing import List, Dict, NamedTuple
 from dataclasses import asdict
@@ -125,18 +125,11 @@ class UpdateChatHistoryOp(AtomicOp):
         llm_response:LLMResponse = LLMResponse.model_validate(llm_response)
         chat_history = entry.data.setdefault(self.output_field, [])
         chat_history.append({
-            "role": self._get_character_name(entry,llm_response.message.role),
+            "role": _pick_field_or_value_strict(entry.data, self.character_field, self.character_name, default=llm_response.message.role),
             "content": llm_response.message.content,
         })
         entry.data[self.output_field] = chat_history
         return entry
-    def _get_character_name(self,entry:Entry,default_name="assistant"):
-        character_name = default_name
-        if self.character_name:
-            character_name= self.character_name
-        if self.character_field and self.character_field in entry.data:
-            character_name = entry.data[self.character_field]
-        return character_name
     
 class ChatHistoryToTextOp(AtomicOp):
     def __init__(self, 
@@ -179,7 +172,7 @@ class TransformCharacterDialogueForLLMOp(AtomicOp):
         llm_request:LLMRequest = LLMRequest.model_validate(llm_request)
         input_messages = llm_request.messages
         output_messages = []
-        assistant_character_name = self._get_character_name(entry, default_name=self.character_name)
+        assistant_character_name = _pick_field_or_value_strict(entry.data, self.character_field, self.character_name, default="assistant")
         for input_message in input_messages:
             if input_message.role in self.allowed_roles:
                 output_messages.append(input_message)
@@ -196,13 +189,6 @@ class TransformCharacterDialogueForLLMOp(AtomicOp):
         llm_request.messages = output_messages
         entry.data[self.input_field] = llm_request.model_dump()
         return entry
-    def _get_character_name(self,entry:Entry,default_name="assistant"):
-        character_name = default_name
-        if self.character_name:
-            character_name= self.character_name
-        if self.character_field and self.character_field in entry.data:
-            character_name = entry.data[self.character_field]
-        return character_name
 
     
 class PrintTotalCostOp(OutputOp):

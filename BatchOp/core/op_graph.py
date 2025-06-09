@@ -17,6 +17,8 @@ class OpGraph:
         self.nodes = nodes
         self.edges = edges
         self.output_cache:Dict[Tuple[BaseOp,int],Dict[str,Entry]]={}
+        self.output_revs:Dict[Tuple[BaseOp,int],Dict[str,int]]={}  # used to reject entry with the same revision emitted twice in the same run
+        self._has_update_flag=False 
 
     def _pump_node(self,node,dispatch_broker:bool=False,reset_input=False):
         inputs:Dict[int,Dict[str,Entry]] = self._collect_node_inputs(node, use_deepcopy=True)
@@ -49,10 +51,21 @@ class OpGraph:
             for idx, entry in new_entries.items():
                 self._update_node_output(node, 0, idx, entry)
         elif isinstance(node, OutputOp):
+            if len(inputs[0]) == 0:
+                return
             node.output_batch(inputs[0])
             for idx, entry in inputs[0].items():
                 self._update_node_output(node, 0, idx, entry)
                 self._consume_node_input(node, idx)
+        elif isinstance(node, BatchOp):
+            if len(inputs[0]) == 0:
+                return
+            new_entries = node.update_batch(inputs[0])
+            for idx, entry in new_entries.items():
+                self._update_node_output(node, 0, idx, entry)
+                self._consume_node_input(node, idx)
+            if node.consume_all_batch:
+                self._consume_node_inputs_batch(node)
         elif isinstance(node, BrokerOp):
             node.enqueue(inputs[0])
             if dispatch_broker:
@@ -61,13 +74,6 @@ class OpGraph:
             for idx, entry in results.items():
                 self._update_node_output(node, 0, idx, entry)
                 self._consume_node_input(node, idx)
-        elif isinstance(node, BatchOp):
-            new_entries = node.update_batch(inputs[0])
-            for idx, entry in new_entries.items():
-                self._update_node_output(node, 0, idx, entry)
-                self._consume_node_input(node, idx)
-            if node.consume_all_batch:
-                self._consume_node_inputs_batch(node)
         else:
             raise NotImplementedError(f"Operation {node} is not implemented.")
 
@@ -97,13 +103,23 @@ class OpGraph:
             src_entries.clear()
     
     def _update_node_output(self,node,port,idx,entry):
-        old_entries = self.output_cache.setdefault((node, port), {})
-        if idx not in old_entries or entry.rev >= old_entries[idx].rev:
-            old_entries[idx] = entry
+        port_entries = self.output_cache.setdefault((node, port), {})
+        port_revs = self.output_revs.setdefault((node, port), {})
+        if idx in port_revs and entry.rev <= port_revs[idx]:
+            return
+        if idx not in port_entries or entry.rev >= port_entries[idx].rev:
+            port_entries[idx] = entry
+            port_revs[idx] = entry.rev
+            self._has_update_flag = True
 
-    def pump(self, dispatch_broker:bool=False, reset_input=False):
+    def pump(self, dispatch_broker:bool=False, reset_input=False)->bool:
+        """ Pump the graph, processing each node in order.
+        Returns True if any node has updated its output.
+        """
+        self._has_update_flag = False
         for node in self.nodes:
             self._pump_node(node, dispatch_broker=dispatch_broker, reset_input=reset_input)
+        return self._has_update_flag
     def clear_output_cache(self):
         self.output_cache.clear()
     def resume(self):

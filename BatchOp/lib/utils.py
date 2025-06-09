@@ -142,11 +142,12 @@ def _number_to_label(n: int) -> str:
         label = chr(65 + remainder) + label
     return label
 
-def _pick_field_or_value_strict(dict,field:str|None,value:Any|None=None):
+def _pick_field_or_value_strict(dict,field:str|None,value:Any|None=None,default=None):
     if field is not None and value is not None: raise ValueError("Only one of field or value should be provided.")
     if field is not None: return dict[field]
     if value is not None: return value
-    raise ValueError("Either field or value must be provided.")
+    if default is not None: return default
+    raise ValueError("Either field, value or default must be provided.")
 
 
 __all__ = [
