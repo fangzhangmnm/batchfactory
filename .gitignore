@@ -2,5 +2,6 @@ __pycache__
 ARCHIVE
 data
 oldref
-tests
-plan.md
+test_notebooks
+journal.md
+dist

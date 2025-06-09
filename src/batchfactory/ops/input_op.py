@@ -4,7 +4,6 @@ from ..lib.markdown_utils import iter_markdown_lines, iter_markdown_entries
 
 from typing import Union, List, Dict, Any, Literal, Iterator, Tuple
 import jsonlines,json
-import pyarrow.parquet as pq
 from glob import glob
 import itertools as itt
 from abc import abstractmethod, ABC

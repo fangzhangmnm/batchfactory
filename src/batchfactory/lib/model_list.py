@@ -30,6 +30,10 @@ model_desc = {
         'price_per_input_token_M':0.075,
         'price_per_output_token_M':0.3
     },
+    'gpt-4o-mini@openai':{
+        'price_per_input_token_M':0.075,
+        'price_per_output_token_M':0.3
+    },
     'deepseek-r1-671b@lambda':{
         'price_per_input_token_M':0.54,
         'price_per_output_token_M':2.18

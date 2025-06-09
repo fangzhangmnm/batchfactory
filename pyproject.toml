@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"
+[project]
+name = "batchfactory"
+version = "0.1.0"
+authors = [
+  { name="fangzhangmnm", email="1561797062@qq.com" },
+]
+description = "Composable, cache-aware batch processing pipelines for LLMs, APIs, and dataset generation."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "aiofiles",
+  "aiolimiter",
+  "jsonlines",
+  "openai",
+  "pydantic",
+  "tqdm",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
+
+[project.urls]
+Homepage = "https://github.com/fangzhangmnm/batchfactory"
+Issues = "https://github.com/fangzhangmnm/batchfactory/issues"
