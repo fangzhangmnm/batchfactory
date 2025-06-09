@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
-from typing import Union, List, Any, Tuple, Iterator, TYPE_CHECKING
+from typing import Union, List, Any, Tuple, Iterator, TYPE_CHECKING, Dict
 from .entry import Entry
 from ..lib.utils import _make_list_of_list
 if TYPE_CHECKING:
@@ -9,15 +9,19 @@ if TYPE_CHECKING:
 
 
 class BaseOp(ABC):
-    def __init__(self):
-        pass
+    def __init__(self,n_inputs:int=1,n_outputs:int=1,consume_all_batch:bool=False):
+        self.n_inputs= n_inputs
+        self.n_outputs = n_outputs
+        self.consume_all_batch = consume_all_batch
     def resume(self):
         pass
     def __repr__(self):
         return f"{self.__class__.__name__}()"
-    def __or__(self,other)->'OpGraphSegment':
+    def to_segment(self) -> 'OpGraphSegment':
         from .op_graph_segment import OpGraphSegment
-        return OpGraphSegment.make_seg(self)|other
+        return OpGraphSegment.make_seg(self)
+    def __or__(self,other)->'OpGraphSegment':
+        return self.to_segment() | other
 
 
 class AtomicOp(BaseOp, ABC):
@@ -31,11 +35,6 @@ class AtomicOp(BaseOp, ABC):
     def update(self, entry: Entry) -> Entry|None:
         "Takes an entry and updates it with the current operation's logic."
         pass
-    def update_batch(self, entries: List[Entry]) -> List[Entry]:
-        entries = list({e.idx: e for e in entries if e is not None}.values())
-        entries = [self.update(e) for e in entries]
-        entries = [e for e in entries if e is not None]
-        return entries
 
     
 class MergeOp(BaseOp, ABC):
@@ -43,31 +42,15 @@ class MergeOp(BaseOp, ABC):
     Used for merging multiple versions of the entry with same idx into one.
     Used for voting, looping, etc
     Do not guarantee entry immutability
-        need_all_inputs: if True, an entry with the same idx will be created only if all inputs are present.
+        allow_missing: if False, an entry with the same idx will be created only if all inputs are present.
     """
-    def __init__(self,n_inputs:int):
-        super().__init__()
-        self.n_inputs = n_inputs
+    def __init__(self,n_inputs:int,allow_missing:bool):
+        super().__init__(n_inputs=n_inputs)
+        self.allow_missing = allow_missing
     @abstractmethod
-    def merge(self, entries: List[Entry]) -> Entry|None:
+    def merge(self, entries: Dict[int,Entry]) -> Entry|None:
         "Merge entries taken from different inputs with the same idx into one entry."
         pass
-    def merge_batch(self, entries:List[List[Entry]]) -> List[Entry]:
-        merged_inputs={}
-        for port, port_entries in enumerate(entries):
-            for entry in port_entries:
-                if entry.idx not in merged_inputs:
-                    merged_inputs[entry.idx] = {}
-                merged_inputs[entry.idx][port] = entry
-        output_entries = []
-        for idx, port_entries in merged_inputs.items():
-            if all(port in port_entries for port in range(self.n_inputs)):
-                merged_entry = [port_entries[port] for port in range(self.n_inputs)]
-                merged_entry = self.merge(merged_entry)
-                if merged_entry is not None:
-                    output_entries.append(merged_entry)
-        return output_entries
-
     
 class SplitOp(BaseOp, ABC):
     """
@@ -76,21 +59,12 @@ class SplitOp(BaseOp, ABC):
     Do not guarantee entry immutability
     """
     def __init__(self, n_outputs: int):
-        super().__init__()
-        self.n_outputs = n_outputs
+        super().__init__(n_outputs=n_outputs)
     @abstractmethod
-    def route(self, entry: Entry) -> List[Tuple[int, Entry]]:
+    def route(self, entry: Entry) -> Dict[int, Entry]:
         """Route an entry to different outputs based on some condition.
         returns (output_leg_index, entry) tuples."""
         pass
-    def route_batch(self,entries: List[Entry]) -> List[List[Entry]]:
-        output_entries = [[] for _ in range(self.n_outputs)]
-        for entry in entries:
-            routes = self.route(entry)
-            for output_leg, routed_entry in routes:
-                if routed_entry is not None:
-                    output_entries[output_leg].append(routed_entry)
-        return output_entries
 
 class InputOp(BaseOp, ABC):
     """
@@ -98,9 +72,10 @@ class InputOp(BaseOp, ABC):
     Used for loading dataset, generating rng, etc
     """
     def __init__(self,fire_once=True):
+        super().__init__(n_inputs=0)
         self.fire_once = fire_once
     @abstractmethod
-    def generate_batch(self)-> List[Entry]:
+    def generate_batch(self)-> Dict[str,Entry]:
         "Generate a list of entries based on some input."
         pass
 
@@ -112,9 +87,23 @@ class OutputOp(BaseOp, ABC):
     The data will be passed transprently to the next operation in the pipeline.
     """
     @abstractmethod
-    def output_batch(self,entries:List[Entry])->None:
+    def output_batch(self,entries:Dict[str,Entry])->None:
         pass
 
+class BatchOp(BaseOp):
+    """
+    Doing operation on batch level
+    e.g. sampling, shuffling, cross-talk, etc
+    """
+    def __init__(self,consume_all_batch:bool):
+        """
+        consume_all_batch: if True, the operation consumes all entries in the batch, no matter how many entries it processes.
+        """
+        super().__init__(consume_all_batch=consume_all_batch)
+    @abstractmethod
+    def update_batch(self, entries: Dict[str,Entry])->Dict[str,Entry]:
+        """Process a batch of entries and return a processed batch."""
+        pass
 
     
 
@@ -135,4 +124,5 @@ __all__ = [
     'SplitOp',
     'InputOp',
     'OutputOp',
+    'BatchOp'
 ]

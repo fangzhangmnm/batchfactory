@@ -142,7 +142,7 @@ class ChatHistoryToTextOp(AtomicOp):
     def __init__(self, 
                  input_field="chat_history",
                  output_field="text",
-                 template="{role}: {content}\n",
+                 template="**{role}**: {content}\n\n",
                  exclude_roles:List[str]|None=None, # e.g. ["system"]
     ):
         super().__init__()
@@ -209,8 +209,8 @@ class PrintTotalCostOp(OutputOp):
     def __init__(self, accumulated_cost_field="api_cost"):
         super().__init__()
         self.accumulated_cost_field = accumulated_cost_field
-    def output_batch(self, entries: List[Entry]):
-        total_cost = sum(entry.data.get(self.accumulated_cost_field, 0.0) for entry in entries)
+    def output_batch(self,entries:Dict[str,Entry])->None:
+        total_cost = sum(entry.data.get(self.accumulated_cost_field, 0.0) for entry in entries.values())
         if total_cost<0.05:
             print(f"Total API cost for the output: {total_cost: .6f} USD")
         else:

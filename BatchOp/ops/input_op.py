@@ -24,14 +24,14 @@ class BaseReaderOp(InputOp, ABC):
     def _iter_records(self) -> Iterator[Tuple[str,Dict]]:
         """Abstract method to iterate over records in the data source."""
         pass
-    def generate_batch(self)-> List[Entry]:
+    def generate_batch(self)-> Dict[str,Entry]:
         stop = self.offset + self.max_count if self.max_count is not None else None
-        entries = []
+        entries = {}
         for idx,json_obj in itt.islice(self._iter_records(), self.offset, stop):
             entry = Entry(idx=idx)
             for field in self.fields:
                 entry.data[field] = json_obj.get(field, None)
-            entries.append(entry)
+            entries[idx] = entry
         return entries
 
 

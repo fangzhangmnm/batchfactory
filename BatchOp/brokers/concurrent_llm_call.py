@@ -36,6 +36,8 @@ class ConcurrentLLMCallBroker(ImmediateBroker):
         self.verbose = 0
 
     def process_jobs(self, jobs: List[BrokerJobRequest]):
+        if len(jobs)==0:
+            return
         print(f"{repr(self)}: processing {len(jobs)} jobs.")
         asyncio.run(self._process_requests_async(jobs))
 
@@ -111,7 +113,6 @@ class ConcurrentLLMCallBroker(ImmediateBroker):
     async def _process_requests_async(self, jobs:Iterable[BrokerJobRequest]):
         input_jobs = list(jobs)
         if not input_jobs: 
-            print("No jobs to process.")
             return
         self.token_counter.reset_counter()
         self.pbar = tqdm(total=len(input_jobs))

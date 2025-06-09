@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field, asdict
 from abc import ABC, abstractmethod
-from typing import Union, List, Any, Tuple, Iterator
+from typing import Union, List, Any, Tuple, Iterator, Dict
 
 from .entry import Entry
 from .ledger import _Ledger
@@ -28,12 +28,20 @@ class BrokerOp(BaseOp, ABC):
     def resume(self):
         self._ledger.resume()
         self.broker.resume()
-    def enqueue(self, entries: List[Entry]):
-        """Queue entries and save to the cache"""
-        entries = list({e.idx: e for e in entries if not self._ledger.contains(e.idx)}.values())
-        for entry in entries:
+    def enqueue(self, entries: Dict[str,Entry]):
+        """Queue entries and save to the cache
+        override is allowed only if entry have greater rev than the old one
+        """
+        entries_list = [] 
+        for idx,input_entry in entries.items():
+            current_entry = self._ledger.get(idx,builder=lambda record: _dict_to_dataclass(record, Entry)) \
+                if self._ledger.contains(idx) else None
+            if current_entry is None or input_entry.rev > current_entry.rev:
+                entries_list.append(input_entry)
+        for entry in entries_list:
             entry.data[self.status_field] = BrokerJobStatus.QUEUED.value
-        self._ledger.append(entries,serializer=asdict)
+        self._ledger.remove([entry.idx for entry in entries_list])
+        self._ledger.append(entries_list,serializer=asdict)
 
     @abstractmethod
     def dispatch_broker(self):
@@ -46,14 +54,14 @@ class BrokerOp(BaseOp, ABC):
     def _check_broker(self):
         """Update the cached entries with the broker results, including output fields and status."""
         pass
-    def get_results(self) -> List[Entry]:
+    def get_results(self) -> Dict[str,Entry]:
         """Check new brock result, and returns all the entries processed (include earlier ones), whenever done or failed"""
         self._check_broker()
-        return self._ledger.filter(
+        entry_list = self._ledger.filter(
             lambda x:BrokerJobStatus(x.data[self.status_field]).is_terminal(),
             builder=lambda record: _dict_to_dataclass(record, Entry)
         )
-
+        return {e.idx: e for e in entry_list}
 
 __all__=[
     "BrokerOp",

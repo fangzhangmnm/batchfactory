@@ -1,6 +1,6 @@
 import hashlib
 from string import Formatter
-from typing import Dict, Iterable, Union, List
+from typing import Dict, Iterable, Union, List, Any
 from pydantic import BaseModel
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
@@ -96,6 +96,14 @@ def _setdefault_hierarchy(dict,path:List[str],default=None):
         current = current[key]
     return current.setdefault(path[-1], default)
 
+def _pivot_cascaded_dict(dict):
+    new_dict = {}
+    for key1,value1 in dict.items():
+        for key2,value2 in value1.items():
+            new_dict.setdefault(key2, {})[key1] = value2
+    return new_dict
+
+
 class FieldsRouter:
     """Usage:
         FieldsRouter([1,2],[3])
@@ -127,6 +135,19 @@ class FieldsRouter:
             entry[field] = value
         
 
+def _number_to_label(n: int) -> str:
+    label = ""
+    while n > 0:
+        n, remainder = divmod(n - 1, 26)
+        label = chr(65 + remainder) + label
+    return label
+
+def _pick_field_or_value_strict(dict,field:str|None,value:Any|None=None):
+    if field is not None and value is not None: raise ValueError("Only one of field or value should be provided.")
+    if field is not None: return dict[field]
+    if value is not None: return value
+    raise ValueError("Either field or value must be provided.")
+
 
 __all__ = [
     "format_number",
@@ -143,5 +164,8 @@ __all__ = [
     "_deep_update",
     "_number_dict_to_list",
     "_setdefault_hierarchy",
-    "FieldsRouter"
+    "_pivot_cascaded_dict",
+    "FieldsRouter",
+    "_number_to_label",
+    "_pick_field_or_value_strict",
 ]

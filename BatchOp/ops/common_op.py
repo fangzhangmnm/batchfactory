@@ -1,7 +1,8 @@
-from ..core import AtomicOp, BrokerJobStatus, Entry
+from ..core import AtomicOp, BrokerJobStatus, Entry, BatchOp
 from ..lib.utils import _to_list_2, FieldsRouter
 
-from typing import List
+from typing import List,Dict
+import random
 
 class DropFailedOp(AtomicOp):
     def __init__(self, status_field="status"):
@@ -78,6 +79,30 @@ class InsertFieldOp(AtomicOp):
         for field, value in zip(self.router.froms, self.router.tos):
             entry.data[field] = value
         return entry
+    
+class ShuffleOp(BatchOp):
+    """Shuffles the entries in a fixed random order"""
+    def __init__(self, seed):
+        super().__init__(consume_all_batch=True)
+        self.seed = seed
+    def update_batch(self, entries: Dict[str,Entry])->Dict[str,Entry]:
+        entries_list = list(entries.values())
+        rng=random.Random(self.seed)
+        rng.shuffle(entries_list)
+        entries = {entry.idx: entry for entry in entries_list}
+        return entries
+    
+class TakeFirstNOp(BatchOp):
+    """Takes the first N entries from the batch. discards the rest."""
+    def __init__(self, n: int):
+        super().__init__(consume_all_batch=True)
+        self.n = n
+    def update_batch(self, entries: Dict[str,Entry])->Dict[str,Entry]:
+        entries_list = list(entries.values())
+        entries_list = entries_list[:self.n]
+        entries = {entry.idx: entry for entry in entries_list}
+        return entries
+
 
 __all__ = [
     "DropFailedOp",
@@ -86,5 +111,7 @@ __all__ = [
     "RenameOp",
     "ApplyOp",
     "MapFieldOp",
-    "InsertFieldOp"
+    "InsertFieldOp",
+    "ShuffleOp",
+    "TakeFirstNOp",
 ]
