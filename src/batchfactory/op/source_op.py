@@ -1,5 +1,5 @@
 from ..core import *
-from ..lib.utils import hash_text
+from ..lib.utils import hash_text, hash_texts, hash_json, FieldsRouter
 from ..lib.markdown_utils import iter_markdown_lines, iter_markdown_entries
 
 from typing import Union, List, Dict, Any, Literal, Iterator, Tuple
@@ -7,8 +7,9 @@ import jsonlines,json
 from glob import glob
 import itertools as itt
 from abc import abstractmethod, ABC
+from copy import deepcopy
 
-class BaseReaderOp(InputOp, ABC):
+class ReaderOp(SourceOp, ABC):
     def __init__(self,
                     fields: List[str],
                     offset: int = 0,
@@ -33,19 +34,7 @@ class BaseReaderOp(InputOp, ABC):
             entries[idx] = entry
         return entries
 
-
-def generate_idx_from_json(json_obj: Dict[str, Any], idx_field: str|None=None, hash_fields: Union[List[str], None]=None) -> str:
-    """Generate an index for the entry based on idx_field and/or hash_fields."""
-    idx = ""
-    if idx_field:
-        idx = json_obj.get(idx_field, "")
-    if hash_fields:
-        if idx:
-            idx += "_"
-        idx += hash_text(json.dumps({field: json_obj.get(field, "") for field in hash_fields}, sort_keys=True))
-    return idx
-
-class ReadJsonOp(BaseReaderOp):
+class ReadJson(ReaderOp):
     def __init__(self, 
                  glob_str: str, 
                  fields: List[str],
@@ -60,13 +49,13 @@ class ReadJsonOp(BaseReaderOp):
             raise ValueError("At least one of idx_field or hash_fields must be provided.")
         self.glob_str = glob_str
         self.idx_field = idx_field
-        self.hash_fields = hash_fields if isinstance(hash_fields, list) else [hash_fields] if hash_fields else None
+        self.hash_fields = FieldsRouter(hash_fields,style="tuple") if hash_fields is not None else None
     def _iter_records(self) -> Iterator[Tuple[str,Dict]]:
         for path in sorted(glob(self.glob_str)):
             if path.endswith('.jsonl'):
                 with jsonlines.open(path) as reader:
                     for record in reader:
-                        idx = generate_idx_from_json(record, self.idx_field, self.hash_fields)
+                        idx = self._generate_idx(record)#, self.idx_field, self.hash_fields)
                         yield idx, record
             elif path.endswith('.json'):
                 with open(path, 'r', encoding='utf-8') as f:
@@ -74,8 +63,18 @@ class ReadJsonOp(BaseReaderOp):
                     if isinstance(records, dict):
                         records = [records]  # Ensure data is a list of dicts
                     for record in records:
-                        idx = generate_idx_from_json(record, self.idx_field, self.hash_fields)
+                        idx = self._generate_idx(record)#, self.idx_field, self.hash_fields)
                         yield idx, record
+    def generate_idx_from_json(self, json_obj) -> str:
+        """Generate an index for the entry based on idx_field and/or hash_fields."""
+        idx = ""
+        if self.index_field is not None:
+            idx = json_obj.get(self.index_field, "")
+        if self.hash_fields is not None:
+            if idx:
+                idx += "_"
+            idx += hash_json({k:json_obj.get(k,"") for k in self.hash_fields.froms})
+        return idx
 
 def generate_directory_str(directory: List[str]) -> str:
     directory = [d.strip().replace(" ", "_").replace("/", "_") for d in directory]
@@ -86,7 +85,7 @@ def generate_idx_from_directory_keyword(directory: List[str], keyword: str)-> st
     keyword = keyword.strip().replace(" ", "_").replace("/", "_")
     return hash_text("/".join(directory) + "/" + keyword)
 
-class ReadMarkdownLinesOp(BaseReaderOp):
+class ReadMarkdownLines(ReaderOp):
     def __init__(self, 
                     glob_str: str,
                     keyword_field: str,
@@ -114,7 +113,41 @@ class ReadMarkdownLinesOp(BaseReaderOp):
                     record[self.directory_str_field] = generate_directory_str(directory)
                 yield idx, record
 
+class FromList(SourceOp):
+    def __init__(self,
+                 input_list: List[Dict],
+                 fire_once: bool = True,
+                 output_field: str = None,
+                 ):
+        super().__init__(fire_once=fire_once)
+        self.input_list = input_list
+        self.output_field = output_field
+    def generate_batch(self) -> Dict[str, Entry]:
+        entries = {}
+        for obj in self.input_list:
+            entry = self._make_entry(obj)
+            entries[entry.idx] = entry
+        return entries
+    def _make_entry(self,obj):
+        if isinstance(obj, Entry):
+            return obj
+        elif isinstance(obj, dict):
+            if all(k in obj for k in ["idx", "data"]):
+                return Entry(idx=obj["idx"], data=obj["data"])
+            else:
+                if "idx" in obj:
+                    return Entry(idx=obj["idx"], data=deepcopy(obj))
+                else:
+                    return Entry(idx=hash_json(obj), data=deepcopy(obj))
+        elif isinstance(obj, (int, float, str, bool)) and self.output_field is not None:
+            return Entry(idx=hash_text(str(obj)), data={self.output_field: obj})
+        else:
+            raise ValueError(f"Unsupported object type for entry creation: {type(obj)}")
+
+
 __all__ = [
-    "ReadJsonOp",
-    "ReadMarkdownLinesOp",
+    "ReaderOp",
+    "ReadJson",
+    "ReadMarkdownLines",
+    "FromList",
 ]

@@ -32,34 +32,22 @@ class ConcurrentLLMCallBroker(ImmediateBroker):
         self.concurrency_semaphore = None
         self.pbar = None
         self.rate_limiter = None
-        self.dummy_test = False  # for testing purposes, set to True to skip actual LLM calls
-        self.verbose = 0
+        self.__mock = None # dont modify it
 
-    def process_jobs(self, jobs: List[BrokerJobRequest]):
-        if len(jobs)==0:
-            return
+    def process_jobs(self, jobs: Dict[str,BrokerJobRequest], mock: bool = False):
+        if len(jobs)==0: return
+        self.__mock = mock
         print(f"{repr(self)}: processing {len(jobs)} jobs.")
         asyncio.run(self._process_requests_async(jobs))
-
-    def _get_dummy_response(self, request:LLMRequest) -> LLMResponse:
-        return LLMResponse(
-            custom_id=request.custom_id,
-            model=request.model,
-            message=LLMMessage(
-                role="assistant",
-                content=f"Dummy response for {request.custom_id}"
-            ),
-            prompt_tokens=100,
-            completion_tokens=50
-        )
+        self.__mock = None
 
     async def _call_llm_async(self, client:AsyncOpenAI, request:LLMRequest):
         async with self.concurrency_semaphore:
             if self.verbose>=1:
                 print(f"Processing request {request.custom_id} with model {request.model}")
-            if self.dummy_test:
-                await asyncio.sleep(10)
-                return self._get_dummy_response(request)
+            if self.__mock:
+                await asyncio.sleep(1)
+                return _get_dummy_response(request)
             completion:ChatCompletion = await client.chat.completions.create(
                 model=get_model_name(request.model),
                 messages=request.messages,
@@ -91,7 +79,7 @@ class ConcurrentLLMCallBroker(ImmediateBroker):
                     input_price_M=input_price_M,
                     output_price_M=output_price_M
                 )
-            await self._ledger.update_async({
+            await self._ledger.update_one_async({
                 "idx": job.job_idx,
                 "status": BrokerJobStatus.DONE,
                 "response": response.model_dump(),
@@ -99,8 +87,7 @@ class ConcurrentLLMCallBroker(ImmediateBroker):
             })
         except Exception as e:
             print(f"Error processing {request.custom_id}: {e}")
-            # await self.ledger._append_to_response_cache_async(job)
-            await( self._ledger.update_async({
+            await( self._ledger.update_one_async({
                 "idx": job.job_idx,
                 "status": BrokerJobStatus.FAILED,
                 "meta": {"error": str(e)},
@@ -110,17 +97,17 @@ class ConcurrentLLMCallBroker(ImmediateBroker):
                 self.pbar.set_postfix_str(self.token_counter.summary())
                 self.pbar.update(1)
 
-    async def _process_requests_async(self, jobs:Iterable[BrokerJobRequest]):
-        input_jobs = list(jobs)
-        if not input_jobs: 
+    async def _process_requests_async(self, jobs:Dict[str,BrokerJobRequest]):
+        jobs = list(jobs.values())
+        if not jobs: 
             return
         self.token_counter.reset_counter()
-        self.pbar = tqdm(total=len(input_jobs))
+        self.pbar = tqdm(total=len(jobs))
         self.concurrency_semaphore = Semaphore(self.concurrency_limit)
         self.rate_limiter = AsyncLimiter(self.rate_limit, 1)  # rate limit of requests per second
         tasks = []
         try:
-            for job in input_jobs:
+            for job in jobs:
                 async with self.rate_limiter:
                     task = asyncio.create_task(self._task_async(job))
                     tasks.append(task)
@@ -135,6 +122,18 @@ class ConcurrentLLMCallBroker(ImmediateBroker):
             print(f"Token usage: {self.token_counter.summary()}")
             self.token_counter.reset_counter()
 
+
+def _get_dummy_response(request:LLMRequest) -> LLMResponse:
+    return LLMResponse(
+        custom_id=request.custom_id,
+        model=request.model,
+        message=LLMMessage(
+            role="assistant",
+            content=f"Dummy response for {request.custom_id}"
+        ),
+        prompt_tokens=100,
+        completion_tokens=50
+    )
 
 
 __all__ = [

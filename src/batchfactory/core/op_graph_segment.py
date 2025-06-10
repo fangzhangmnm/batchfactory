@@ -1,12 +1,12 @@
-from .op_graph import OpEdge, OpGraph
-from .op_node import *
+from .op_graph import OpGraphEdge, OpGraph
+from .op_base import *
 from typing import List, Dict, Tuple
 from ..lib.utils import _number_to_label
 
 class OpGraphSegment:
     def __init__(self):
         self.nodes:List[BaseOp] = []
-        self.edges:List[OpEdge] = []
+        self.edges:List[OpGraphEdge] = []
         self.head:BaseOp = None
         self.tail:BaseOp = None
     @classmethod
@@ -26,7 +26,7 @@ class OpGraphSegment:
         if set(self.nodes) & set(other.nodes): raise ValueError(f"Segments {self} and {other} have overlapping nodes.")
         if not self.is_out_port_abaliable(self.tail, 0): raise ValueError(f"Port 0 of tail node {self.tail} is already used.")
         if not other.is_in_port_abaliable(other.head, 0): raise ValueError(f"Port 0 of head node {other.head} is already used.")
-        self.edges.append(OpEdge(self.tail, other.head, 0, 0))
+        self.edges.append(OpGraphEdge(self.tail, other.head, 0, 0))
         self.nodes.extend(other.nodes) 
         self.edges.extend(other.edges)
         self.tail = other.tail
@@ -55,7 +55,7 @@ class OpGraphSegment:
             raise ValueError(f"Input Port {target_port} of node {targer} is already used.")
         if not self.is_out_port_abaliable(source, source_port):
             raise ValueError(f"Output Port {source_port} of node {source} is already used.")
-        self.edges.append(OpEdge(source, targer, source_port, target_port))
+        self.edges.append(OpGraphEdge(source, targer, source_port, target_port))
 
     def merge(self,other:'OpGraphSegment|BaseOp')->None:
         other = OpGraphSegment.make_seg(other)
@@ -103,7 +103,7 @@ def _is_chain(nodes,edges):
     if len(edges)!= len(nodes) - 1:
         return False
     for i in range(len(nodes) - 1):
-        if OpEdge(nodes[i], nodes[i + 1]) not in edges:
+        if OpGraphEdge(nodes[i], nodes[i + 1]) not in edges:
             return False
     return True
 

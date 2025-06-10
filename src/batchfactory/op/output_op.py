@@ -1,4 +1,4 @@
-from ..core import AtomicOp, BrokerJobStatus, OutputOp
+from ..core import ApplyOp, BrokerJobStatus, OutputOp
 from ..core.entry import Entry
 from ..lib.utils import _to_list_2
 
@@ -8,28 +8,46 @@ import os
 from dataclasses import asdict
 from copy import deepcopy
 
+class ToList(OutputOp):
+    def __init__(self):
+        super().__init__()
+        self._output_entries = {}
+    def output_batch(self, entries: Dict[str, Entry]) -> None:
+        for idx, entry in entries.items():
+            if idx in self._output_entries:
+                if entry.rev < self._output_entries[idx].rev:
+                    continue
+            self._output_entries[idx] = entry
+    def get_output(self) -> List[Entry]:
+        return list(self._output_entries.values())
 
-class PrintEntryOp(OutputOp):
-    def output_batch(self,entries:Dict[str,Entry])->None:
+class PrintEntry(OutputOp):
+    def __init__(self,first_n=None):
+        super().__init__()
+        self.first_n = first_n
+    def output_batch(self, entries: Dict[str, Entry]) -> None:
         print("Entries:")
-        for entry in entries.values():
+        for entry in list(entries.values())[:self.first_n]:
             print("idx:", entry.idx, "rev:", entry.rev)
             print(entry.data)
             print()
+        print()
 
-class PrintTextOp(OutputOp):
-    def __init__(self, field="text"):
+class PrintText(OutputOp):
+    def __init__(self, field="text", first_n=None):
         super().__init__()
         self.field = field
+        self.first_n = first_n
 
     def output_batch(self,entries:Dict[str,Entry])->None:
         print("Text Entries:")
-        for entry in entries.values():
+        for entry in list(entries.values())[:self.first_n]:
             print(f"Index: {entry.idx}, Revision: {entry.rev}")
             print(entry.data.get(self.field, "No text found"))
             print()
+        print()
 
-class SaveJsonlOp(OutputOp):
+class WriteJsonl(OutputOp):
     def __init__(self, path: str, 
                  output_fields: str|List[str]=None,
                  only_current:bool=False):
@@ -75,3 +93,10 @@ class SaveJsonlOp(OutputOp):
                 print("failed")
                 return
         self._output_entries[new_entry.idx] = new_entry
+
+__all__ = [
+    "ToList",
+    "PrintEntry",
+    "PrintText",
+    "WriteJsonl"
+]
