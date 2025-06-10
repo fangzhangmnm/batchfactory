@@ -97,13 +97,23 @@ class OpGraph:
         first = True
         did_emit = True
         iterations = 0
-        while did_emit and iterations < max_iterations:
-            iterations += 1
+        while True:
+            while True:
+                if iterations >= max_iterations: break
+                did_emit = self.pump(PumpOptions(
+                    dispatch_brokers = False,
+                    mock = mock,
+                    reload_inputs = first))
+                iterations +=1
+                first = False
+                if not did_emit: break
+            if iterations >= max_iterations: break
             did_emit = self.pump(PumpOptions(
                 dispatch_brokers=dispatch_brokers,
                 mock=mock,
-                reload_inputs=first))
-            first = False
+                reload_inputs=False))
+            iterations += 1
+            if not did_emit: break
 
     def __repr__(self):
         from .op_graph_segment import _repr_graph

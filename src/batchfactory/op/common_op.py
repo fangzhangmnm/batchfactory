@@ -54,8 +54,10 @@ class Apply(ApplyOp):
             tuple_or_entry = self.func(*self.router.read_tuple(entry.data))
             if len(self.router.tos)>=2:
                 self.router.write_tuple(entry.data, *tuple_or_entry)
-            else:
+            elif len(self.router.tos)==1:
                 self.router.write_tuple(entry.data, tuple_or_entry)
+            else:
+                pass
         else:
             self.func(entry.data)
 

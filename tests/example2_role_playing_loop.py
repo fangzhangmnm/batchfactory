@@ -36,7 +36,7 @@ def test_example2_role_playing_loop():
     g |= Teacher("请进行总结。", 3)
     g |= ChatHistoryToText() | RemoveField("chat_history")
     g |= WriteJsonl(project["out/role_playing_loop.jsonl"], output_fields=["keyword", "text", "directory","model"])
-    g |= PrintText()
+    g |= Print()
 
     g = g.compile()
     g.execute(dispatch_brokers=True, mock=False)

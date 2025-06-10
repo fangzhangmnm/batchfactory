@@ -202,15 +202,15 @@ class CollectAllOp(BaseOp, ABC):
         super().__init__(n_in_ports=2, n_out_ports=1)
 
     @abstractmethod
-    def find_master(self, spawn_entry: Entry)->str|None:
+    def get_master_idx(self, spawn_entry: Entry)->str|None:
         "get the idx of the master entry"
         pass
     @abstractmethod
-    def is_ready(self,master_entry: Entry, spawn_entries:Dict[str,Entry]) -> bool:
+    def is_ready(self,master_entry: Entry, spawn_bundle:Dict[str,Entry]) -> bool:
         "Check if all spawn entries had arrived."
         pass
     @abstractmethod
-    def update_master(self, master_entry: Entry, spawn_entries: Dict[str, Entry])->None:
+    def update_master(self, master_entry: Entry, spawn_bundle: Dict[str, Entry])->None:
         "Update master entry in-place from spawn entries."
         pass
     def pump(self, inputs, options: PumpOptions) -> PumpOutput:
@@ -219,7 +219,7 @@ class CollectAllOp(BaseOp, ABC):
         candidate_batch = inputs.get(1, {})
         spawn_batches = {}
         for spawn_entry in candidate_batch.values():
-            master_idx = self.find_master(spawn_entry)
+            master_idx = self.get_master_idx(spawn_entry)
             if master_idx is None:
                 continue
             spawn_batches.setdefault(master_idx, {})[spawn_entry.idx] = spawn_entry

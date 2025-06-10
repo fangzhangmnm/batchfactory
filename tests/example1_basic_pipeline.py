@@ -5,6 +5,8 @@ def test_example1_basic_pipeline():
     project = bf.CacheFolder("example1_basic_pipeline", 1, 0, 0)
     broker = bf.brokers.ConcurrentLLMCallBroker(project["cache/llm_broker.jsonl"])
 
+    # project.delete_all(warning=False)
+
     # Build a small graph that rewrites passages into short English poems
 
     g = (
@@ -18,7 +20,7 @@ def test_example1_basic_pipeline():
         | ConcurrentLLMCall(project["cache/llm_call1.jsonl"], broker)
         | ExtractResponseText()
         | WriteJsonl(project["out/poems.jsonl"],output_fields=["keyword","text","directory"])
-        | PrintText()
+        | Print()
     )
 
     g = g.compile()

@@ -114,6 +114,7 @@ def test_concurrent_llm_call_op():
     from batchfactory.brokers import ConcurrentLLMCallBroker
     from batchfactory.op import ConcurrentLLMCall
     from batchfactory import Entry, LLMRequest, LLMResponse, LLMMessage, BrokerJobStatus
+    from batchfactory import PumpOptions
 
     op_cache="./data/.tmp/concurrent_llm_call_op.json"
     broker_cache="./data/.tmp/concurrent_llm_call_broker.json"
@@ -134,8 +135,6 @@ def test_concurrent_llm_call_op():
         input_field="llm_request",
         output_field="llm_response",
         status_field="status",
-        retry_failed=True,
-        drop_failed=True
     )
     # Create mock entries
     entries = {
@@ -155,11 +154,13 @@ def test_concurrent_llm_call_op():
         ) for i in range(20)
     }
     # Enqueue entries
-    op.enqueue(entries)
-    # Dispatch the broker to process the jobs
-    op.dispatch_broker(mock=True)
+    # op.enqueue(entries)
+    results = op.pump({0:entries},PumpOptions(
+        dispatch_brokers=True,
+        mock=True,
+        reload_inputs=True
+    )).outputs[0]
     # Check results
-    results = op.get_results()
     assert len(results) == len(entries), "Not all entries were processed."
     for entry_idx, entry in results.items():
         assert entry.data["status"] == BrokerJobStatus.DONE.value, f"Entry {entry_idx} did not complete successfully."
@@ -183,11 +184,13 @@ def test_concurrent_llm_call_op():
         input_field="llm_request",
         output_field="llm_response",
         status_field="status",
-        retry_failed=True,
-        drop_failed=True
     )
     op.resume()
-    results = op.get_results()
+    results = op.pump({},PumpOptions(
+        dispatch_brokers=True,
+        mock=True,
+        reload_inputs=True
+    )).outputs[0]
     assert len(results) == len(entries), "Not all entries were processed after recovery."
     # Clean up
     del op

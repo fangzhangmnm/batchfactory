@@ -26,6 +26,7 @@ class PrintEntry(OutputOp):
         super().__init__()
         self.first_n = first_n
     def output_batch(self, entries: Dict[str, Entry]) -> None:
+        if not entries: return
         print("Entries:")
         for entry in list(entries.values())[:self.first_n]:
             print("idx:", entry.idx, "rev:", entry.rev)
@@ -33,7 +34,7 @@ class PrintEntry(OutputOp):
             print()
         print()
 
-class PrintText(OutputOp):
+class Print(OutputOp):
     def __init__(self, field="text", first_n=None):
         super().__init__()
         self.field = field
@@ -43,7 +44,7 @@ class PrintText(OutputOp):
         print("Text Entries:")
         for entry in list(entries.values())[:self.first_n]:
             print(f"Index: {entry.idx}, Revision: {entry.rev}")
-            print(entry.data.get(self.field, "No text found"))
+            print(entry.data.get(self.field, None))
             print()
         print()
 
@@ -97,6 +98,6 @@ class WriteJsonl(OutputOp):
 __all__ = [
     "ToList",
     "PrintEntry",
-    "PrintText",
+    "Print",
     "WriteJsonl"
 ]

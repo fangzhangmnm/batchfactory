@@ -1,6 +1,6 @@
 from ..core.op_base import *
 from ..core.entry import Entry
-from ..lib.utils import FieldsRouter
+from ..lib.utils import FieldsRouter, hash_json
 
 
 from typing import List, Tuple, Dict, Callable, TYPE_CHECKING
@@ -23,6 +23,22 @@ class Replicate(SplitOp):
                 new_entry.data[self.replica_idx_field] = i
             output_entries[i] = new_entry
         return output_entries
+    
+class Collect(MergeOp):
+    "Collect data from in_port 1"
+    def __init__(self, *fields):
+        """
+        - collects data from in_port 1
+        - `Collect('field1', 'field2')` 
+        """
+        super().__init__(n_in_ports=2, wait_all=True)
+        self.field_mappings = FieldsRouter(*fields, style="tuple")
+    def merge(self, entries: Dict[int, Entry]) -> Entry:
+        for field in self.field_mappings.froms:
+            if field in entries[1].data:
+                entries[0].data[field] = entries[1].data[field]
+        return entries[0]
+
 
 class BeginIfOp(SplitOp,ABC):
     "Switch to port 1 if criteria is met"
@@ -199,11 +215,82 @@ def Repeat(body_chain:'OpGraphSegment|BaseOp',
     main_chain.wire(body_chain, node, 0, 1)
     return main_chain
 
+class SpawnFromList(SpawnOp):
+    "Explode a list to multiple entries, each with a single item from the list."
+    def __init__(self,
+                 list_field="list",
+                 item_field="item",
+                 master_idx_field="master_idx",
+                 list_idx_field="list_idx",
+                 spawn_idx_list_field="spawn_idx_list",
+    ):
+        super().__init__()
+        self.list_field = list_field
+        self.item_field = item_field
+        self.master_idx_field = master_idx_field
+        self.list_idx_field = list_idx_field
+        self.spawn_idx_list_field = spawn_idx_list_field
+    def spawn_entries(self, entry: Entry) -> Dict[str, Entry]:
+        """Entry->{new_idx:new_Entry}"""
+        items = entry.data.get(self.list_field, [])
+        if not isinstance(items, list):
+            raise ValueError(f"Field '{self.list_field}' is not a list.")
+        output_entries = {}
+        for list_idx, item in enumerate(items):
+            new_data = {self.item_field: item}
+            if self.master_idx_field is not None:
+                new_data[self.master_idx_field] = entry.idx
+            if self.list_idx_field is not None:
+                new_data[self.list_idx_field] = list_idx
+            spawn_idx = hash_json(new_data)
+            spawn_entry = Entry(idx=spawn_idx, data=new_data)
+            output_entries[spawn_idx] = spawn_entry
+        if self.spawn_idx_list_field is not None:
+            entry.data[self.spawn_idx_list_field] = list(output_entries.keys())
+        return output_entries
+            
+class CollectAllToList(CollectAllOp):
+    "Concentrate items from multiple entries into a list."
+    def __init__(self, 
+                item_field="item",
+                list_field="list",
+                master_idx_field="master_idx",
+                list_idx_field="list_idx",
+                spawn_idx_list_field="spawn_idx_list",
+    ):
+        super().__init__()
+        self.list_field = list_field
+        self.item_field = item_field
+        self.master_idx_field = master_idx_field
+        self.list_idx_field = list_idx_field
+        self.spawn_idx_list_field = spawn_idx_list_field
+    def get_master_idx(self, spawn: Entry)->str|None:
+        return spawn.data[self.master_idx_field]
+    def is_ready(self,master_entry: Entry, spawn_bundle:Dict[str,Entry]) -> bool:
+        for spawn_idx in master_entry.data[self.spawn_idx_list_field]:
+            if spawn_idx not in spawn_bundle:
+                return False
+        return True
+    def update_master(self, master_entry: Entry, spawn_bundle: Dict[str, Entry])->None:
+        items = [] 
+        for spawn_idx in master_entry.data[self.spawn_idx_list_field]:
+            item = spawn_bundle[spawn_idx].data[self.item_field]
+            items.append(item)
+        master_entry.data[self.list_field] = items
+
+        
+
+
+
+
+
+
 def _get_field_or_value(data,field,value):
     return value if field is None else data[field]
 
 __all__ = [
     "Replicate",
+    "Collect",
     "BeginIf",
     "EndIf",
     "If",
@@ -211,5 +298,7 @@ __all__ = [
     "WhileNode",
     "While",
     "RepeatNode",
-    "Repeat"
+    "Repeat",
+    "SpawnFromList",
+    "CollectAllToList",
 ]

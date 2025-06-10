@@ -111,13 +111,11 @@ class CheckpointOp(BaseOp, ABC):
     def _serialize_entry(self,entry:Entry)->Dict[str, Any]:
         record = asdict(entry)
         if self.keep_all_rev:
-            if '_' in record['idx']:
-                raise ValueError("Entry idx should not contain '_' when keep_all_rev is True")
             record['idx'] = f"{entry.idx}_{entry.rev}"
         return record
     def _build_entry(self, record: Dict[str, Any]) -> Entry:
         if self.keep_all_rev and '_' in record['idx']:
-            record['idx'],_ = record['idx'].split('_',1)
+            record['idx'],_ = record['idx'].rsplit('_',1)
         return Entry(**record)
 
 class CheckPoint(CheckpointOp):

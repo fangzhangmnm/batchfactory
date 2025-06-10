@@ -205,6 +205,7 @@ class ConcurrentLLMCall(BrokerOp):
                     input_field="llm_request",
                     output_field="llm_response",
                     status_field="status",
+                    job_idx_field="job_idx",
                     keep_all_rev: bool = True,
                     failure_behavior:BrokerFailureBehavior = BrokerFailureBehavior.STAY
     ):
@@ -213,28 +214,17 @@ class ConcurrentLLMCall(BrokerOp):
             broker=broker,
             keep_all_rev=keep_all_rev,
             status_field=status_field,
+            job_idx_field=job_idx_field,
             failure_behavior=failure_behavior
         )
         self.input_field = input_field
         self.output_field = output_field
-        self.status_field = status_field
 
-    def enqueue_requests(self, queued_entries: Dict[str,Entry]):
-        requests:Dict[str,BrokerJobRequest] = {}
-        for entry in queued_entries.values():
-            llm_request = LLMRequest.model_validate(entry.data[self.input_field])
-            requests[llm_request.custom_id] = BrokerJobRequest(
-                job_idx=llm_request.custom_id,
-                status=BrokerJobStatus.QUEUED,
-                request_object=copy.deepcopy(llm_request),
-                meta={"entry_idx": entry.idx, "entry_rev": entry.rev},
-            )
-        self.broker.enqueue(requests)
+    def generate_job_idx(self, entry):
+        return entry.data[self.input_field]["custom_id"]
 
-        # now update the status of the entries in the cache
-        for entry in queued_entries.values():
-            entry.data[self.status_field] = BrokerJobStatus.QUEUED.value
-        self.update_batch(queued_entries)
+    def get_request_object(self, entry: Entry)->Dict:
+        return LLMRequest.model_validate(entry.data[self.input_field])
         
     def dispatch_broker(self, mock:bool=False)->None:
         if self.failure_behavior == BrokerFailureBehavior.RETRY:
@@ -244,35 +234,35 @@ class ConcurrentLLMCall(BrokerOp):
         requests = self.broker.get_job_requests(allowed_status)
         if not requests:
             return
-        print(f"Dispatching {len(requests)} jobs to the broker.")
         self.broker.process_jobs(requests, mock=mock)
 
-    def check_broker(self)->Tuple[Dict[str,Entry],Set[str]]:
-        batch = {}
-        consumed_job_idxs = set()
-        for response in self.broker.get_job_responses().values():
-            # note that entry_idx is not job_idx
-            entry_idx = response.meta.get("entry_idx", None)
-            rev = response.meta.get("entry_rev", 0)
-            if entry_idx is None:
-                print(f"Response {response.job_idx} has no entry index in meta, skipping.")
-                continue
-            if not self._contains(entry_idx, rev=rev):
-                print(f"Response {response.job_idx} has no matching entry in the ledger, skipping.")
-                continue
-            entry:Entry = self._get_entry(entry_idx, rev=rev)
-            entry.data[self.status_field] = response.status.value
-            if response.status.is_terminal() and response.response_object is not None:
-                entry.data[self.output_field] = response.response_object.model_dump()
-            else:
-                entry.data[self.output_field] = None
-            consumed_job_idxs.add(response.job_idx)
-            batch[entry.idx] = entry
-        return batch, consumed_job_idxs
 
 class CleanupLLMData(RemoveField):
     def __init__(self,fields=["llm_request","llm_response","status"]):
         super().__init__(*fields)
+
+class SplitCot(ApplyOp):
+    def __init__(self, input_field="llm_response", cot_field="cot", label = "</think>", start_label = "<think>"):
+        super().__init__()
+        self.input_field = input_field
+        self.cot_field = cot_field
+        self.label = label
+        self.start_label = start_label
+    def update(self, entry: Entry) -> None:
+        llm_response = entry.data.get(self.input_field, None)
+        llm_response:LLMResponse = LLMResponse.model_validate(llm_response)
+        content = llm_response.message.content
+        cot = ""
+        if self.label in content:
+            cot, content = content.split(self.label,1)
+            if self.start_label and cot.strip().startswith(self.start_label):
+                cot = cot.strip()[len(self.start_label):]
+        if self.cot_field:
+            entry.data[self.cot_field] = cot.strip()
+        llm_response.message.content = content
+        entry.data[self.input_field] = llm_response.model_dump()
+        
+
 
 
 
@@ -286,6 +276,7 @@ __all__ = [
     "PrintTotalCost",
     "CleanupLLMData",
     "ChatHistoryToText",
+    "SplitCot",
 ]
 
 
