@@ -1,0 +1,8 @@
+aiofiles
+aiolimiter
+jsonlines
+nest_asyncio
+openai
+pydantic
+pytest
+tqdm

@@ -1,6 +1,6 @@
 from ..core import *
 from ..lib.llm_backend import LLMRequest, LLMMessage, LLMResponse, compute_llm_cost, get_provider_name
-from ..lib.utils import get_format_keys, hash_texts
+from ..lib.utils import get_format_keys, hash_texts, ReprUtil
 from ..brokers.concurrent_llm_call_broker import ConcurrentLLMCallBroker
 from ..core.broker import BrokerJobRequest, BrokerJobResponse, BrokerJobStatus
 from .common_op import RemoveField
@@ -9,6 +9,7 @@ from .broker_op import BrokerOp, BrokerFailureBehavior
 import copy
 from typing import List, Dict, NamedTuple, Set, Tuple
 from dataclasses import asdict
+import re
 
 
 
@@ -33,6 +34,7 @@ class GenerateLLMRequest(ApplyOp):
         self.model = model
         self.max_completion_tokens = max_completion_tokens
         self.output_key = output_key
+    def _args_repr(self): return ReprUtil.repr_str(self.user_prompt)
     def update(self, entry: Entry) -> None:
         messages = self._build_messages(entry)
         request_obj = LLMRequest(
@@ -108,7 +110,7 @@ class ExtractResponseText(ApplyOp):
 class UpdateChatHistory(ApplyOp):
     "Appending the LLM response to the chat history."
     def __init__(self,
-                    input_key="llm_response",
+                    input_key="text",
                     output_key="chat_history",
                     character_name:str=None, # e.g. "Timmy"
                     character_key:str=None, # e.g. "character_name"
@@ -119,15 +121,14 @@ class UpdateChatHistory(ApplyOp):
         self.character_name = character_name
         self.character_key = character_key
     def update(self, entry: Entry) -> None:
-        llm_response = entry.data.get(self.input_key, None)
-        llm_response:LLMResponse = LLMResponse.model_validate(llm_response)
+        response_text = entry.data.get(self.input_key, None)
         chat_history = entry.data.setdefault(self.output_key, [])
         chat_history.append({
-            "role": _pick_field_or_value_strict(entry.data, self.character_key, self.character_name, default=llm_response.message.role),
-            "content": llm_response.message.content,
+            "role": _pick_field_or_value_strict(entry.data, self.character_key, self.character_name, default="assistant"),
+            "content": response_text,
         })
         entry.data[self.output_key] = chat_history
-    
+
 class ChatHistoryToText(ApplyOp):
     "Format the chat history into a single text."
     def __init__(self, 
@@ -240,35 +241,31 @@ class ConcurrentLLMCall(BrokerOp):
             return
         self.broker.process_jobs(requests, mock=mock)
 
-
 class CleanupLLMData(RemoveField):
     "Clean up internal fields used for LLM processing, such as llm_request, llm_response, and status."
     def __init__(self,fields=["llm_request","llm_response","status"]):
         super().__init__(*fields)
 
-class SplitCot(ApplyOp):
-    "Remove the chain of thought (CoT) from the LLM response and store it separately. Must be called before extracting the response text or dialogue."
-    def __init__(self, input_key="llm_response", cot_key="cot", label = "</think>", start_label = "<think>"):
-        super().__init__()
-        self.input_key = input_key
-        self.cot_key = cot_key
-        self.label = label
-        self.start_label = start_label
-    def update(self, entry: Entry) -> None:
-        llm_response = entry.data.get(self.input_key, None)
-        llm_response:LLMResponse = LLMResponse.model_validate(llm_response)
-        content = llm_response.message.content
-        cot = ""
-        if self.label in content:
-            cot, content = content.split(self.label,1)
-            if self.start_label and cot.strip().startswith(self.start_label):
-                cot = cot.strip()[len(self.start_label):]
-        if self.cot_key:
-            entry.data[self.cot_key] = cot.strip()
-        llm_response.message.content = content
-        entry.data[self.input_key] = llm_response.model_dump()
-        
-        
+def remove_speaker_tag(line):
+    "Remove speaker tags. Use Apply to wrap it."
+    pattern = r'^\s*[*_~`]*\w+[*_~`]*[:：][*_~`]*\s*'
+    return re.sub(pattern, '', line)
+remove_speaker_tag._show_in_op_list = True
+
+def split_cot(text)->Tuple[str,str]:
+    "Split the LLM response into text and chain of thought (CoT). Use Apply to wrap it."
+    cot = ""
+    if "</think>" in text:
+        cot, text = text.split("</think>", 1)
+        if cot.strip().startswith("<think>"):
+            cot = cot.strip()[len("<think>"):]
+    return text, cot.strip()
+split_cot._show_in_op_list = True
+
+def remove_cot(text):
+    "Remove the chain of thought (CoT) from the LLM response. Use Apply to wrap it."
+    return split_cot(text)[0]
+remove_cot._show_in_op_list = True
 
 
 __all__ = [
@@ -281,7 +278,9 @@ __all__ = [
     "PrintTotalCost",
     "CleanupLLMData",
     "ChatHistoryToText",
-    "SplitCot",
+    "remove_speaker_tag",
+    "remove_cot",
+    "split_cot",
 ]
 
 

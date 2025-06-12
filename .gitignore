@@ -6,3 +6,4 @@ test_notebooks
 journal.md
 dist
 README_NEW.md
+.pytest_cache

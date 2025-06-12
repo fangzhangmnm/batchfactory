@@ -1,8 +1,8 @@
-from ..core.op_base import *
-from ..lib.utils import KeysUtil
+from ..core.base_op import *
+from ..lib.utils import KeysUtil, ReprUtil
 from ..core import BrokerJobStatus, Entry
 
-from typing import List,Dict, Callable
+from typing import List,Dict, Callable, Any
 import random
 
 class Filter(FilterOp):
@@ -20,12 +20,14 @@ class Filter(FilterOp):
             return self._criteria(*self.keys.read_keys(entry.data))
         else:
             return self._criteria(entry.data)
+    def _args_repr(self): return ReprUtil.repr_lambda(self._criteria)
         
 class FilterFailedEntries(FilterOp):
     """Drop entries that have a status "failed"."""
     def __init__(self, status_key="status",consume_rejected=False):
         super().__init__(consume_rejected=consume_rejected)
         self.status_key = status_key
+    def _args_repr(self): return ReprUtil.repr_str(self.status_key)
     def criteria(self, entry):
         return BrokerJobStatus(entry.data[self.status_key]) != BrokerJobStatus.FAILED
 
@@ -35,6 +37,7 @@ class FilterMissingFields(FilterOp):
         super().__init__(consume_rejected=consume_rejected)
         self.keys = KeysUtil.make_keys(*keys,allow_empty=False)
         self.allow_None = allow_None
+    def _args_repr(self): return ReprUtil.repr_keys(self.keys)
     def criteria(self, entry):
         if self.allow_None:
             return all(field in entry.data for field in self.keys)
@@ -51,6 +54,7 @@ class Apply(ApplyOp):
         super().__init__()
         self.func = func
         self.in_keys, self.out_keys = KeysUtil.make_io_keys(*keys) if keys else (None, None)
+    def _args_repr(self): return ReprUtil.repr_lambda(self.func)
     def update(self, entry:Entry)->None:
         if self.in_keys is not None:
             out_tuple = self.func(*KeysUtil.read_dict(entry.data, self.in_keys))
@@ -70,6 +74,7 @@ class SetField(ApplyOp):
     def __init__(self, *data):
         super().__init__()
         self.data = KeysUtil.make_dict(*data)
+    def _args_repr(self): return ReprUtil.repr_dict(self.data)
     def update(self, entry:Entry)->None:
         for field, value in self.data.items():
             entry.data[field] = value
@@ -79,10 +84,10 @@ class RemoveField(ApplyOp):
     Remove fields from the entry data.
     - `RemoveField('k1', 'k2', ...)`, see `KeysInput` for details
     """
-
     def __init__(self, *keys):
         super().__init__()
         self.keys = KeysUtil.make_keys(*keys, allow_empty=False)
+    def _args_repr(self): return ReprUtil.repr_keys(self.keys)
     def update(self, entry:Entry)->None:
         for field in self.keys:
             entry.data.pop(field, None)
@@ -96,6 +101,7 @@ class RenameField(ApplyOp):
         super().__init__()
         self.from_keys, self.to_keys = KeysUtil.make_keys_map(*keys_map, non_overlapping=True)
         self.copy = copy
+    def _args_repr(self): return ReprUtil.repr_dict_from_tuples(self.from_keys, self.to_keys)
     def update(self, entry:Entry)->None:
         for k1, k2 in zip(self.from_keys, self.to_keys):
             if self.copy:
@@ -120,6 +126,7 @@ class TakeFirstN(BatchOp):
     def __init__(self, n: int, barrier_level = 1):
         super().__init__(consume_all_batch=True, barrier_level=barrier_level)
         self.n = n
+    def _args_repr(self): return f"n={self.n}"
     def update_batch(self, entries: Dict[str, Entry]) -> Dict[str, Entry]:
         entries_list = list(entries.values())
         entries_list = entries_list[:self.n]
@@ -128,13 +135,14 @@ class TakeFirstN(BatchOp):
     
 class Sort(BatchOp):
     """Sort the entries in a batch"""
-    def __init__(self, *keys, reverse=False, custom_func: Callable = None, barrier_level = 1):
+    def __init__(self, *keys, reverse=False, custom_func: Callable[[Dict],Any] = None, barrier_level = 1):
         super().__init__(consume_all_batch=True, barrier_level=barrier_level)
         self.keys = KeysUtil.make_keys(*keys, allow_empty=False) if keys else None
         self.reverse = reverse
         self.custom_func = custom_func
         if self.custom_func is None and self.keys is None:
             raise ValueError("Either 'keys' or 'custom_func' must be provided for sorting.")
+    def _args_repr(self): return ReprUtil.repr_keys(self.keys) if self.keys else ReprUtil.repr_lambda(self.custom_func)
     def _key(self,entry:Entry):
         if self.custom_func is not None:
             if self.keys is not None:
@@ -142,13 +150,10 @@ class Sort(BatchOp):
             else:
                 return self.custom_func(entry.data)
         else:
-            print(KeysUtil.read_dict(entry.data, self.keys))
             return KeysUtil.read_dict(entry.data, self.keys)
     def update_batch(self, entries: Dict[str, Entry]) -> Dict[str, Entry]:
         entries_list = list(entries.values())
-        print(entries_list)
         entries_list = sorted(entries_list, key=self._key, reverse=self.reverse)
-        print(entries_list)
         return {entry.idx: entry for entry in entries_list}
     
 

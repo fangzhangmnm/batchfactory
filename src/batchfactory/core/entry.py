@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 from typing import Union, List, Any, Tuple, Iterator
+from ..lib.utils import ReprUtil
 
 @dataclass
 class Entry:
@@ -18,6 +19,15 @@ class Entry:
     meta: dict = field(default_factory=dict)
         # metadata of the task
         # can be used to store additional information like timestamps, status, etc.
+    def __repr__(self): return repr_entry(self)
+
+
+def repr_entry(entry: Entry) -> str:
+    s = ""
+    s+=f"Entry {entry.idx} (rev {entry.rev})\n"
+    for k,v in entry.data.items():
+        s+=f"  {k}: {ReprUtil.repr_item(v,max_len=50)}\n"
+    return s
         
 __all__ = [
     'Entry',

@@ -5,25 +5,39 @@ from pathlib import Path
 
 def find_project_root() -> Path:
     here = Path(__file__).resolve()
-    for parent in here.parents:
-        if (parent / "src").is_dir() and (
-            (parent / "README.md").exists()
-        ):
-            return parent
+    parent = here.parent.parent.parent
+    if (parent / "README.md").exists() and (parent / "src").is_dir():
+        return parent
     return None
 
+def read_file(file_path: Path) -> str:
+    if not file_path.exists():
+        print(f"File not found: {file_path}")
+        return ""
+    with open(file_path, "r", encoding="utf-8") as file:
+        return file.read()
+    
+def get_code_demo(file_path: Path) -> str:
+    text = read_file(file_path)
+    text = text.split("# START_EXAMPLE_EXPORT", 1)[-1]
+    text = text.split("# END_EXAMPLE_EXPORT", 1)[0].strip()
+    text = "```python\n" + text + "\n```"
+    return text
 
-def generate_doc(project_root: Path):
+
+def generate_docs(project_root: Path):
+    readme_str = read_file(project_root / "docs" / "README_template.md")
+    readme_str = readme_str.replace("<!-- ALL_OPS_PLACEHOLDER -->", 
+                                    _generate_all_ops_md_str())
+
+    readme_str = readme_str.replace("<!-- QUICK_START_EXAMPLE_PLACEHOLDER -->", 
+                                    get_code_demo(project_root / "examples" / "1_quickstart.py"))
+    readme_str = readme_str.replace("<!-- TEXT_SEGMENTATION_EXAMPLE_PLACEHOLDER -->", 
+                                    get_code_demo(project_root / "examples" / "3_text_segmentation.py"))
+    readme_str = readme_str.replace("<!-- ROLEPLAY_EXAMPLE_PLACEHOLDER -->",
+                                    get_code_demo(project_root / "examples" / "2_roleplay.py"))
+
     readme_path = project_root / "README.md"
-    readme_template_path = project_root / "docs" / "README_template.md"
-    all_ops_placeholder = "<!-- ALL_OPS_PLACEHOLDER -->"
-    if not readme_template_path.exists():
-        print(f"Template file not found: {readme_template_path}")
-        return
-    with open(readme_template_path, "r", encoding="utf-8") as template_file:
-        readme_str = template_file.read()
-    all_ops_str = _generate_all_ops_md_str()
-    readme_str = readme_str.replace(all_ops_placeholder, all_ops_str)
     with open(readme_path, "w", encoding="utf-8") as readme_file:
         readme_file.write(readme_str)
     print(f"Updated README.md at: {readme_path}")
@@ -33,12 +47,12 @@ def generate_doc(project_root: Path):
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--update_doc", action="store_true", help="Update the ops documentation  (dev only)")
+    parser.add_argument("--update_docs", action="store_true", help="Update the ops documentation  (dev only)")
 
     args = parser.parse_args()
-    if args.update_doc:
+    if args.update_docs:
         project_root = find_project_root()
         if not project_root:
-            print("Could not find project root.")
+            print("--update_docs must be called in a dev environment, please check github repository for instructions.")
             sys.exit(1)
-        generate_doc(project_root)
+        generate_docs(project_root)

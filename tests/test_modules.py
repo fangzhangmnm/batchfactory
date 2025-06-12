@@ -39,7 +39,7 @@ def test_ledger():
     assert ledger.get_one("3") == {"idx": "3", "data": "test3"}
     # Compact the cache
     ledger.compact()
-    assert os.path.exists(ledger.cache_path)
+    assert os.path.exists(ledger.path)
     # Resume
     del ledger
     ledger = _Ledger(cache_path)
@@ -192,7 +192,6 @@ def test_concurrent_llm_call_op():
         reload_inputs=True,
         max_barrier_level=None,
     )).outputs[0]
-    print(results)
     assert len(results) == len(entries), "Not all entries were processed after recovery."
     # Clean up
     del op

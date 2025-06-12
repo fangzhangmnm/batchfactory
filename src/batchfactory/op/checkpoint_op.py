@@ -1,10 +1,12 @@
 from dataclasses import dataclass, field, asdict
 from abc import ABC, abstractmethod
 from typing import Union, List, Any, Tuple, Iterator, Dict, Set, Literal
+import os
 
 from ..core.entry import Entry
 from ..core.ledger import _Ledger
-from ..core.op_base import BaseOp, PumpOptions, PumpOutput
+from ..core.base_op import BaseOp, PumpOptions, PumpOutput
+from ..lib.utils import ReprUtil
 
 
 class CheckpointOp(BaseOp, ABC):
@@ -18,6 +20,13 @@ class CheckpointOp(BaseOp, ABC):
         self._ledger = _Ledger(cache_path)
         self.keep_all_rev = keep_all_rev
         self.emitted_revs = {} # prevent the same entry being emitted twice
+
+    def _args_repr(self): return ReprUtil.repr_str(os.path.basename(self._ledger.path))
+
+    def reset(self):
+        super().reset()
+        self._ledger.reset()
+        self.emitted_revs.clear()
 
     def resume(self):
         super().resume()
@@ -71,18 +80,28 @@ class CheckpointOp(BaseOp, ABC):
         Get entries in the cache that
         1. only output entries have the same idx in input_batch
         2. have the latest revision in the cache, and its rev >= input_batch[idx].rev
+        3. sorted in the order given by input_batch
         """
         records = self._ledger.get_all()
         newest_entries = {}
-        for record in records.values():
-            cached_entry = self._build_entry(record)
-            if cached_entry.idx not in input_batch:
+        # for record in records.values():
+        #     cached_entry = self._build_entry(record)
+        #     if cached_entry.idx not in input_batch:
+        #         continue
+        #     if cached_entry.rev < input_batch[cached_entry.idx].rev:
+        #         continue
+        #     if cached_entry.idx in newest_entries and cached_entry.rev < newest_entries[cached_entry.idx].rev:
+        #         continue
+        #     newest_entries[cached_entry.idx] = cached_entry
+        for idx,input_entry in input_batch.items():
+            if not self._contains(idx, input_batch[idx].rev):
                 continue
-            if cached_entry.rev < input_batch[cached_entry.idx].rev:
+            cached_entry = self._get_entry(idx, input_batch[idx].rev)
+            if cached_entry.rev < input_entry.rev:
                 continue
-            if cached_entry.idx in newest_entries and cached_entry.rev < newest_entries[cached_entry.idx].rev:
+            if idx in newest_entries and cached_entry.rev < newest_entries[idx].rev:
                 continue
-            newest_entries[cached_entry.idx] = cached_entry
+            newest_entries[idx] = cached_entry
         return newest_entries
     
     def pump(self, inputs: Dict[int, Dict[str, Entry]], options: PumpOptions) -> PumpOutput:

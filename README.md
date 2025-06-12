@@ -2,7 +2,7 @@
 
 Composable, cache‑aware pipelines for **parallel LLM workflows**, API calls, and dataset generation.
 
-> **Status — `v0.2` alpha.**  Stable enough for prototypes; expect fast‑moving APIs.
+> **Status — `v0.3` alpha.** More robust and battle-tested on small projects. Still evolving quickly — APIs may shift.
 
 ---
 
@@ -24,137 +24,104 @@ from batchfactory.op import *
 project = bf.CacheFolder("quickstart", 1, 0, 0)
 broker  = bf.brokers.ConcurrentLLMCallBroker(project["cache/llm_broker.jsonl"])
 
-# Rewrite the first three passages of every *.txt file into four‑line poems.
+PROMPT = """
+Write a poem about {keyword}.
+"""
 
-g = (
-    ReadMarkdownLines("./data/*.txt", keyword_key="keyword", directory_key="directory")
-    | Shuffle(42)
-    | TakeFirstN(3)
-    | GenerateLLMRequest(
-        'Rewrite the passage from "{directory}" titled "{keyword}" as a four‑line poem.',
-        model="gpt-4o-mini@openai",
-    )
-    | ConcurrentLLMCall(project["cache/llm_call.jsonl"], broker)
-    | ExtractResponseText()
-    | WriteJsonl(project["out/poems.jsonl"], output_keys=["keyword", "text", "directory"])
-    | Print()
-)
+g = bf.Graph()
+g |= ReadMarkdownLines("./demo_data/greek_mythology_stories.md")
+g |= Shuffle(42) | TakeFirstN(5)
+g |= GenerateLLMRequest(PROMPT, model="gpt-4o-mini@openai")
+g |= ConcurrentLLMCall(project["cache/llm_call.jsonl"],broker)
+g |= ExtractResponseText()
+g |= WriteMarkdownEntries(project["out/poems.md"])
 
-g.compile().execute(dispatch_brokers=True)
+g.execute(dispatch_brokers=True)
 ```
 
 Run it twice – everything after the first run is served from the on‑disk ledger.
 
 ---
 
-## Why BatchFactory?  **Three killer moves**
-
 ## Why BatchFactory?  **Three killer moves**
 
 | 🏭 Mass data distillation & cleanup | 🎭 Multi-agent, multi-round workflows | 🌲 Hierarchical spawning (`ListParallel`) |
 |---|---|---|
-| Chain `GenerateLLMRequest → ConcurrentLLMCall → ExtractResponseText` behind keyword or file sources to **bulk-create, filter, or refine datasets** (think millions of Q&A rows, code explanations, translation pairs) with caching and cost tracking built-in. | `Repeat` plus chat helpers let you spin up translation swarms, code-review pairs, or tutoring agents in **5 minutes of code** – conversations live in `chat_history`, cost and revisions are automatic. | `ListParallel` explodes complex items into fine-grained subtasks, runs them **in parallel**, then auto-collects results – perfect for beat → scene → arc analysis or any long, messy document pipeline. |
+| Chain `GenerateLLMRequest → ConcurrentLLMCall → ExtractResponseText` after keyword / file sources to **mass-produce**, **filter**, or **polish** datasets—millions of Q&A rows, code explanations, translation pairs—with built-in caching & cost tracking. | With `Repeat`, `If`, `While`, and chat helpers, you can script complex role-based collaborations—e.g. *Junior Translator → Senior Editor → QA → Revision*—and run full multi-agent, multi-turn simulations in just a few lines of code. Ideal for workflows inspired by **TransAgents**, **MATT**, or **ChatDev**. | `ListParallel` breaks a complex item into fine-grained subtasks, runs them **concurrently**, then reunites the outputs—ideal for **long-text summarisation**, **RAG chunking**, or any tree-structured pipeline. |
 
+
+---
+
+### Spawn snippet (Text Segmentation)
+
+```python
+g |= Apply(lambda x: split_text(label_line_numbers(x)), "text", "text_segments")
+spawn_chain = AskLLM(LABEL_SEG_PROMPT, "labels", 1)
+spawn_chain |= Apply(text_to_integer_list, "labels", "labels")
+g | ListParallel(spawn_chain, "text_segments", "text", "labels", "labels")
+g |= Apply(flatten_list, "labels", "labels")
+g |= Apply(split_text_by_line_labels, ["text", "labels"], "text_segments")
+g |= ExplodeList(["directory", "text_segments"], ["directory", "text"])
+```
 
 ---
 
 ### Loop snippet (Role‑Playing)
 
 ```python
-Teacher = Character("teacher_name", TEACHER_PROMPT)
-Student = Character("student_name", STUDENT_PROMPT)
+Teacher = Character("teacher_name", "You are a teacher named {teacher_name}. "+FORMAT_REQ)
+Student = Character("student_name", "You are a student named {student_name}. "+FORMAT_REQ)
 
-g = ( ReadMarkdownLines("story.txt", "keyword")
-      | SetField({"teacher_name":"Alice", "student_name":"Bob"})
-      | Teacher("老师，请先讲解课文", 0)
-      | Repeat( Student("同学提问或回答", 1)
-                | Teacher("回应或继续讲解", 2), 3)
-      | Teacher("请总结", 3)
-      | ChatHistoryToText() | Print() )
+g = bf.Graph()
+g |= ReadMarkdownLines("./demo_data/greek_mythology_stories.md") | TakeFirstN(1)
+g |= SetField("teacher_name", "Teacher","student_name", "Student")
+
+g |= Teacher("Please introduce the text from {directory} titled {keyword}.", 0)
+loop_body = Student("Please ask questions or respond.", 1)
+loop_body |= Teacher("Please respond to the student or continue explaining.", 2)
+g |= Repeat(loop_body, 3)
+g |= Teacher("Please summarize.", 3)
+g |= ChatHistoryToText(template="**{role}**: {content}\n\n")
+g |= WriteMarkdownEntries(project["out/roleplay.md"])
 ```
-
-### Spawn snippet (chapter → paragraph → synopsis with `ListParallel`)
-```python
-project = bf.CacheFolder("spawn_demo", 1, 0, 0)
-broker  = bf.brokers.ConcurrentLLMCallBroker(project["cache/llm.jsonl"])
-
-def ParaSummary():
-    s = GenerateLLMRequest("Summarise:\n{paragraph}", model="gpt-4o-mini@openai")
-    s |= ConcurrentLLMCall(project["cache/ps.jsonl"], broker)
-    s |= ExtractResponseText()
-    return s
-
-g = ( ReadMarkdownLines("novel/*.md", "chapter")         # each entry = a chapter
-      | ListParallel(ParaSummary(),                      # spawn per paragraph
-                     in_lists_keys="paragraphs",
-                     out_items_keys="paragraph",
-                     in_items_keys="summary",
-                     out_lists_keys="para_summaries")
-      | GenerateLLMRequest("Chapter synopsis:\n{para_summaries}",
-                           model="gpt-4o-mini@openai")
-      | ConcurrentLLMCall(project["cache/ch_sum.jsonl"], broker) )
-```
-
----
 
 ## Core concepts (one‑liner view)
 
-| Term             | Story in one sentence                                                                                                                               |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Entry**        | Tiny record with immutable `idx`, mutable `data`, auto‑incrementing `rev`.                                                                          |
-| **Op**           | Atomic node; compose with `|`or explicit`wire()`.                                                                                                   |
-| **GraphSegment** | A lightweight helper: `.to_segment()` just wraps a node so `|`and`wire()` work on it—each actual op still appears exactly once.                     |
-| **execute()**    | High‑level driver that *resumes*, *pumps*, and *dispatches* brokers.                                                                                |
-| **Broker**       | Pluggable engine handling expensive / async jobs (LLM, search, human labels).                                                                       |
-| **Ledger**       | Append‑only JSONL cache behind every broker & graph enabling instant restart.                                                                       |
 
-*(You *can* call `pump()` manually, but 99 % of users stick to `execute()`.)*
-
----
-
-## Primitive index (short list)
-
-| Family              | Node                                                           | Blurb                             |
-| ------------------- | -------------------------------------------------------------- | --------------------------------- |
-| **Sources**         | `ReadMarkdownLines`, `FromList`                                | ingest files or raw dicts         |
-| **Transforms**      | `Apply`, `Filter`, `SetField`                                  | python‑powered field tweaks       |
-| **Spawn / Collect** | `SpawnFromList`, `CollectAllToList`                            | map‑reduce with unique child ids  |
-| **Control flow**    | `If`, `While`, `Repeat`                                        | branch, loop, iterate             |
-| **LLM**             | `GenerateLLMRequest → ConcurrentLLMCall → ExtractResponseText` | prompt, call, harvest             |
-| **Utilities**       | `CleanupLLMData`, `PrintTotalCost`                             | tidy temporary fields, audit cost |
-| **Parallel helper** | `ListParallel` | one-liner spawn → subgraph → collect |
-| **Spawn / Collect (low-level)** | `SpawnFromList`, `CollectAllToList` | manual map-reduce with unique child ids |
-
-*(Shared‑idx ops `Replicate` / `Collect` are deprecated and vanish in v0.3.)*
+| Term          | Story in one sentence                                                                                                                              |               |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| **Entry**     | Tiny record with immutable `idx`, mutable `data`, auto‑incrementing `rev`.                                                                         |               |
+| **Op**        | Atomic node; compose with `|`or`wire()`. |
+| **Graph**     | A chain of `Op`s wired together — supports flexible pipelines and subgraphs.                                                                       |               |
+| **Executor**  | Internal engine that tracks graph state, manages batching, resumption, and broker dispatch. Created automatically when you call `graph.execute()`. |               |
+| **Broker**    | Pluggable engine for expensive or async jobs (LLM APIs, search, human labelers).                                                                   |               |
+| **Ledger**    | Append‑only JSONL backing each broker & graph — enables instant resume and transparent caching.                                                    |               |
+| **execute()** | High-level command that runs the graph: creates an `Executor`, resumes from cache, and dispatches brokers as needed.                               |               |
 
 ---
 
-## Example gallery
+## 📚 Example Gallery
 
-| ✨ Example                       | Demonstrates                                          |
-| ------------------------------- | ----------------------------------------------------- |
-| **01 – Basic pipeline**         | linear LLM transform & caching                        |
-| **02 – Role‑playing loop**      | concise multi‑agent RPG using `Repeat` + chat helpers |
-| **03 – Split & summarise**      | fan‑out/fan‑in summarisation (deprecated style)       |
-| **04 – Long‑text segmentation** | Spawn + CollectAll power pattern                      |
-| **05 – Math ops (unit)**        | loop + conditional logic under pure Python            |
+| ✨ Example                 | Demonstrates                                        |
+| ------------------------- | --------------------------------------------------- |
+| **1\_quickstart**         | Linear LLM transform with caching and auto‑resuming |
+| **2\_roleplay**           | Multi-agent, multi-turn roleplay using chat agents  |
+| **3\_text\_segmentation** | Divide‑and‑conquer pipeline for text segmentation   |
 
 ---
 
-## Broker & cache highlights
+## ⚙️ Broker & Cache Highlights
 
-* Each expensive call is hashed → `job_idx` — **duplicate prompts are free**.
-* `BrokerFailureBehavior = RETRY | STAY | EMIT` lets you decide how failures propagate.
-* On restart, `execute()` reuses cached results and sends *only* the missing jobs.
+* Every expensive call is **hashed** to a unique `job_idx` — repeated prompts are automatically **deduplicated**.
+* Control how failures propagate with `BrokerFailureBehavior = RETRY | STAY | EMIT`.
+* On restart, `execute()` resumes from cached state and dispatches **only missing or incomplete jobs** — no manual checkpoints needed.
 
 ---
 
-## Roadmap → v0.3
+## 🛣️ Roadmap → v0.4
 
-* Enforce **unique `idx`** end‑to‑end → new `JoinByParent` replaces deprecated shared‑idx ops.
-* Built‑in vector‑store & semantic‑search nodes.
-* Streamlined cost & progress reporting.
-* More batteries‑included tutorials.
+* Native **vector store** and **semantic search** nodes
+* Streamlined **cost tracking** and **progress reporting**
 
 ---
 
@@ -179,6 +146,8 @@ g = ( ReadMarkdownLines("novel/*.md", "chapter")         # each entry = a chapte
 | `FilterMissingFields` | Drop entries that do not have specific fields. |
 | `FromList` | Create entries from a list of dictionaries or objects, each representing an entry. |
 | `GenerateLLMRequest` | Generate a LLM query from a given prompt, formatting it with the entry data. |
+| `If` | Switch to true_chain if criteria is met, otherwise stay on false_chain. |
+| `ListParallel` | Spawn entries from a list (or lists), process them in parallel, and collect them back to a list (or lists). |
 | `PrintEntry` | Print the first n entries information. |
 | `PrintField` | Print the specific field(s) from the first n entries. |
 | `PrintTotalCost` | Print the total accumulated API cost for the output batch. |
@@ -188,20 +157,29 @@ g = ( ReadMarkdownLines("novel/*.md", "chapter")         # each entry = a chapte
 | `ReadTxtFolder` | Collect all txt files in a folder. |
 | `RemoveField` | Remove fields from the entry data. |
 | `RenameField` | Rename fields in the entry data. |
+| `Repeat` | Repeat the loop body for a fixed number of rounds. |
 | `RepeatNode` | Repeat the loop body for a fixed number of rounds. See `Repeat` function for usage. |
+
+
+| Operation | Description |
+|-----------|-------------|
 | `Replicate` | Replicate an entry to all output ports. |
 | `SetField` | Set fields in the entry data to specific values. |
 | `Shuffle` | Shuffle the entries in a batch randomly. |
 | `Sort` | Sort the entries in a batch |
+| `SortMarkdownEntries` | No documentation available |
 | `SpawnFromList` | Spawn multiple spawn entries to port 1 based on a list (or lists). |
-| `SplitCot` | Remove the chain of thought (CoT) from the LLM response and store it separately. Must be called before extracting the response text or dialogue. |
 | `TakeFirstN` | Takes the first N entries from the batch. discards the rest. |
 | `ToList` | Output a list of specific field(s) from entries. |
 | `TransformCharacterDialogueForLLM` | Map custom character roles to valid LLM roles (user/assistant/system). Must be called after GenerateLLMRequest. |
 | `UpdateChatHistory` | Appending the LLM response to the chat history. |
+| `While` | Executes the loop body while the criteria is met. |
 | `WhileNode` | Executes the loop body while the criteria is met. See `While` function for usage. |
 | `WriteJsonl` | Write entries to a JSON Lines file. |
 | `WriteMarkdownEntries` | Write entries to a Markdown file, with heading hierarchy defined by directory and keyword. |
+| `remove_cot` | Remove the chain of thought (CoT) from the LLM response. Use Apply to wrap it. |
+| `remove_speaker_tag` | Remove speaker tags. Use Apply to wrap it. |
+| `split_cot` | Split the LLM response into text and chain of thought (CoT). Use Apply to wrap it. |
 
 ---
 

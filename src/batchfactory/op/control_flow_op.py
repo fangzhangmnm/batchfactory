@@ -1,6 +1,6 @@
-from ..core.op_base import *
+from ..core.base_op import *
 from ..core.entry import Entry
-from ..lib.utils import hash_json, KeysUtil, CollectionsUtil
+from ..lib.utils import hash_json, KeysUtil, CollectionsUtil, ReprUtil
 
 
 from typing import List, Tuple, Dict, Callable, TYPE_CHECKING
@@ -8,7 +8,7 @@ from copy import deepcopy
 from abc import ABC, abstractmethod
 
 if TYPE_CHECKING:
-    from ..core.op_graph_segment import OpGraphSegment
+    from ..core.op_graph import Graph
 
 class Replicate(SplitOp):
     "Replicate an entry to all output ports."
@@ -33,6 +33,7 @@ class Collect(MergeOp):
         """
         super().__init__(n_in_ports=2, wait_all=True)
         self.keys = KeysUtil.make_keys(*keys, allow_empty=False)
+    def _args_repr(self): return ReprUtil.repr_keys(self.keys)
     def merge(self, entries: Dict[int, Entry]) -> Entry:
         for key in self.keys:
             if key in entries[1].data:
@@ -64,12 +65,13 @@ class BeginIf(BeginIfOp):
         super().__init__()
         self._criteria = criteria
         self.criteria_keys = KeysUtil.make_keys(*keys) if keys else None
+    def _args_repr(self): return ReprUtil.repr_lambda(self._criteria)
     def criteria(self, entry: Entry) -> bool:
         if self.criteria_keys is not None:
             return self._criteria(*KeysUtil.read_dict(entry.data, self.criteria_keys))
         else:
             return self._criteria(entry.data)
-    
+
 class EndIf(MergeOp):
     "Join entries from either port 0 or port 1. See `If` function for usage."
     def __init__(self):
@@ -81,8 +83,9 @@ class EndIf(MergeOp):
         # should not increase rev here
         return entry
     
-def If(criteria:Callable, true_chain:'OpGraphSegment|BaseOp|None', false_chain=None) -> 'OpGraphSegment':
+def If(criteria:Callable, true_chain:'Graph|BaseOp|None', false_chain=None) -> 'Graph':
     """
+    Switch to true_chain if criteria is met, otherwise stay on false_chain.
     - `If(lambda data: data['condition'], true_chain, false_chain)`
     """
     begin = BeginIf(criteria)
@@ -92,12 +95,13 @@ def If(criteria:Callable, true_chain:'OpGraphSegment|BaseOp|None', false_chain=N
     else:
         main_chain = begin | end
     if true_chain is not None:
-        true_chain = true_chain.to_segment()
+        true_chain = true_chain.to_graph()
         main_chain.wire(begin, true_chain, 1, 0)
         main_chain.wire(true_chain, end, 0, 1)
     else:
         main_chain.wire(begin, end, 1, 1)
     return main_chain
+If._show_in_op_list = True
 
 class LoopOp(RouterOp,ABC):
     """
@@ -153,22 +157,25 @@ class WhileNode(LoopOp):
         super().__init__()
         self._criteria = criteria
         self.criteria_keys = KeysUtil.make_keys(*criteria_keys) if criteria_keys else None
+    def _args_repr(self): return ReprUtil.repr_lambda(self._criteria)
     def criteria(self, entry: Entry) -> bool:
         if self.criteria_keys is not None:
             return self._criteria(*self.criteria_keys.read_keys(entry.data))
         else:
             return self._criteria(entry.data)
         
-def While(criteria:Callable, body_chain:'OpGraphSegment|BaseOp') -> 'OpGraphSegment':
+def While(criteria:Callable, body_chain:'Graph|BaseOp') -> 'Graph':
     """
+    Executes the loop body while the criteria is met.
     - `While(lambda data: data['condition'], loop_body)`
     """
     loop_nome = WhileNode(criteria)
-    main_chain = loop_nome.to_segment()
-    body_chain = body_chain.to_segment()
+    main_chain = loop_nome.to_graph()
+    body_chain = body_chain.to_graph()
     main_chain.wire(loop_nome, body_chain, 1, 0)
     main_chain.wire(body_chain, loop_nome, 0, 1)
     return main_chain
+While._show_in_op_list = True
 
 class RepeatNode(LoopOp):
     "Repeat the loop body for a fixed number of rounds. See `Repeat` function for usage."
@@ -180,6 +187,7 @@ class RepeatNode(LoopOp):
         self.max_rounds_key = max_rounds_key
         if max_rounds is None and max_rounds_key is None:
             raise ValueError("Either max_rounds or max_rounds_key must be provided.")
+    def _args_repr(self): return self.max_rounds_key or f"{self.max_rounds}"
     def initialize(self, entry: Entry) -> None:
         if self.initial_value is not None:
             entry.data[self.rounds_key] = self.initial_value
@@ -195,9 +203,10 @@ class RepeatNode(LoopOp):
         entry.data[self.rounds_key] += 1
 
 
-def Repeat(body_chain:'OpGraphSegment|BaseOp', 
+def Repeat(body_chain:'Graph|BaseOp', 
            max_rounds=None, rounds_key="rounds", max_rounds_key=None, initial_value:int|None=0):
     """
+    Repeat the loop body for a fixed number of rounds.
     - `Repeat(loop_body,5,"rounds")`
     - `Repeat(loop_body,max_rounds_key='max_rounds')`
     - Note the subtle difference compared to `for` clause in c language:
@@ -207,11 +216,12 @@ def Repeat(body_chain:'OpGraphSegment|BaseOp',
     """
     node = RepeatNode(max_rounds=max_rounds, rounds_key=rounds_key, 
                       max_rounds_key=max_rounds_key, initial_value=initial_value)
-    main_chain = node.to_segment()
-    body_chain = body_chain.to_segment()
+    main_chain = node.to_graph()
+    body_chain = body_chain.to_graph()
     main_chain.wire(node, body_chain, 1, 0)
     main_chain.wire(body_chain, node, 0, 1)
     return main_chain
+Repeat._show_in_op_list = True
 
 
 
@@ -242,11 +252,13 @@ def _explode_entry_by_lists(entry: Entry,
 class ExplodeList(BatchOp):
     "Explode an entry to multiple entries based on a list (or lists)."
     def __init__(self, in_lists_keys="list", out_lists_keys="item",
-                 master_idx_key="master_idx", list_idx_key="list_idx"):
-        super().__init__(consume_all_batch=True, barrier_level=0)
+                 master_idx_key="master_idx", list_idx_key="list_idx",
+                 barrier_level=1):
+        super().__init__(consume_all_batch=True, barrier_level=barrier_level)
         self.in_keys, self.out_keys = KeysUtil.make_keys_map(in_lists_keys, out_lists_keys)
         self.master_idx_key = master_idx_key
         self.list_idx_key = list_idx_key
+    def _args_repr(self): return ReprUtil.repr_dict_from_tuples(self.in_keys, self.out_keys)
     def update_batch(self, batch: Dict[str, Entry]) -> Dict[str, Entry]:
         output_entries = {}
         for entry in batch.values():
@@ -270,6 +282,7 @@ class SpawnFromList(SpawnOp):
         self.master_idx_key = master_idx_key
         self.list_idx_key = list_idx_key
         self.spawn_idx_list_key = spawn_idx_list_key
+    def _args_repr(self): return ReprUtil.repr_dict_from_tuples(self.in_lists_keys, self.out_items_keys)
     def spawn_entries(self, entry: Entry) -> Dict[str, Entry]:
         """Entry->{new_idx:new_Entry}"""
         output_entries = _explode_entry_by_lists(entry, self.in_lists_keys, self.out_items_keys,
@@ -294,6 +307,7 @@ class CollectAllToList(CollectAllOp):
         self.master_idx_key = master_idx_key
         self.list_idx_key = list_idx_key
         self.spawn_idx_list_key = spawn_idx_list_key
+    def _args_repr(self): return ReprUtil.repr_dict_from_tuples(self.in_items_keys, self.out_lists_keys)
     def get_master_idx(self, spawn: Entry)->str|None:
         return spawn.data[self.master_idx_key]
     def is_ready(self,master_entry: Entry, spawn_bundle:Dict[str,Entry]) -> bool:
@@ -307,7 +321,7 @@ class CollectAllToList(CollectAllOp):
             zipped_output_lists.append(KeysUtil.read_dict(spawn_bundle[spawn_idx].data, self.in_items_keys))
         KeysUtil.write_dict(master_entry.data, self.out_lists_keys, *zip(*zipped_output_lists))
         
-def ListParallel(spawn_body:'OpGraphSegment|BaseOp',
+def ListParallel(spawn_body:'Graph|BaseOp',
         in_lists_keys:str="list",
         out_items_keys:str|None="item",
         in_items_keys:str|None=None,
@@ -315,7 +329,7 @@ def ListParallel(spawn_body:'OpGraphSegment|BaseOp',
         master_idx_key="master_idx",
         list_idx_key="list_idx",
         spawn_idx_list_key="spawn_idx_list",
-        master_body:'OpGraphSegment|BaseOp|None'=None,
+        master_body:'Graph|BaseOp|None'=None,
     ):
     "Spawn entries from a list (or lists), process them in parallel, and collect them back to a list (or lists)."
     if out_items_keys is None: 
@@ -342,19 +356,16 @@ def ListParallel(spawn_body:'OpGraphSegment|BaseOp',
         main_chain = Begin | master_body | End
     else:
         main_chain = Begin | End
-    spawn_body = spawn_body.to_segment()
+    spawn_body = spawn_body.to_graph()
     main_chain.wire(Begin, spawn_body, 1, 0)
     main_chain.wire(spawn_body, End, 0, 1)
     return main_chain
+ListParallel._show_in_op_list = True
 
-          
-
-
-
-
-
+        
 def _get_field_or_value(data,field,value):
     return value if field is None else data[field]
+
 
 __all__ = [
     "Replicate",

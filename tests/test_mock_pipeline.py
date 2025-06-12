@@ -23,7 +23,8 @@ def test_llm_call():
     broker = bf.brokers.ConcurrentLLMCallBroker(project["cache/llm_broker.jsonl"])
     project.delete_all(warning=False)
 
-    g = FromList(test_data)
+    g = bf.Graph()
+    g |= FromList(test_data)
     g |= GenerateLLMRequest(
             'Rewrite the passage from "{directory}" titled "{keyword}" as a four-line English poem.',
             model="gpt-4o-mini@openai",
@@ -34,8 +35,8 @@ def test_llm_call():
         assert data["text"]
         data["text"] = f"This is a test passage {data['keyword']}."
     g |= Apply(check_dummy_response_and_restore)
-    g = g.compile()
     results = g.execute(dispatch_brokers=True, mock=True)
+    print(g)
 
     check_against_test_data(results)
 
@@ -44,14 +45,15 @@ def test_llm_call():
 def test_json():
     project.delete_all(warning=False)
 
-    g = FromList(test_data)
+    g = bf.Graph()
+    g |= FromList(test_data)
     g |= WriteJsonl(project["cache/test_data.jsonl"])
-    g = g.compile()
     g.execute(dispatch_brokers=False, mock=True)
+    print(g)
 
-    g = ReadJsonl(project["cache/test_data.jsonl"]).to_segment()
-    g = g.compile()
+    g = ReadJsonl(project["cache/test_data.jsonl"]).to_graph()
     results = g.execute(dispatch_brokers=False, mock=True)
+    print(g)
 
     check_against_test_data(results)
 
@@ -60,14 +62,15 @@ def test_json():
 def test_markdown():
     project.delete_all(warning=False)
 
-    g = FromList(test_data)
+    g = bf.Graph()
+    g |= FromList(test_data)
     g |= WriteMarkdownEntries(project["cache/test_data.md"])
-    g = g.compile()
     g.execute(dispatch_brokers=False, mock=True)
+    print(g)
 
-    g = ReadMarkdownEntries(project["cache/test_data.md"],directory_mode='str').to_segment()
-    g = g.compile()
+    g = ReadMarkdownEntries(project["cache/test_data.md"],directory_mode='str').to_graph()
     results = g.execute(dispatch_brokers=False, mock=True)
+    print(g)
 
     check_against_test_data(results)
 
@@ -77,7 +80,8 @@ def test_rpg_loop():
     broker = bf.brokers.ConcurrentLLMCallBroker(project["cache/llm_broker.jsonl"])
     project.delete_all(warning=False)
 
-    g = FromList(test_data)
+    g = bf.Graph()
+    g |= FromList(test_data)
     g |= SetField("teacher_name", "Teacher","student_name", "Student")
     def Character(character_key, user_prompt):
         def func(command,identifier):
@@ -89,6 +93,7 @@ def test_rpg_loop():
             )
             seg |= TransformCharacterDialogueForLLM(character_key=character_key)
             seg |= ConcurrentLLMCall(project[f"cache/llm_call_{identifier}.jsonl"], broker, failure_behavior="retry")
+            seg |= ExtractResponseText()
             seg |= UpdateChatHistory(character_key=character_key)
             seg |= ExtractResponseMeta() | CleanupLLMData()
             return seg
@@ -103,13 +108,11 @@ def test_rpg_loop():
     g |= Repeat(g1, 3)
     g |= Teacher("Please summarize.", 3)
     g |= ChatHistoryToText(template="**{role}**: {content}\n\n")
-
-    g = g.compile()
-
     results = g.execute(dispatch_brokers=True, mock=True)
+    print(g)
+
     assert len(results) == 3, f"Expected 3 entries, got {len(results)}"
     for entry, reference in zip(results, test_data):
-        # how many time should Teacher appear?
         n_teacher_speaks = 1 + 3 + 1
         n_student_speaks = 3
         dialogue_text = entry.data["text"]

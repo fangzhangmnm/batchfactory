@@ -3,7 +3,7 @@ from typing import Dict, Tuple, Set
 from enum import Enum
 from copy import deepcopy
 from ..core.entry import Entry
-from ..core.op_base import PumpOptions
+from ..core.base_op import PumpOptions
 from .checkpoint_op import CheckpointOp
 from ..core.broker import Broker, BrokerJobStatus, BrokerJobRequest, BrokerJobResponse
 
@@ -38,6 +38,9 @@ class BrokerOp(CheckpointOp,ABC):
             self.status_key = status_key
             self.failure_behavior = failure_behavior
             self.job_idx_key = job_idx_key
+    def reset(self):
+        super().reset()
+        self.broker.reset()
     def resume(self):
         super().resume()
         self.broker.resume()

@@ -1,6 +1,6 @@
 import hashlib
 from string import Formatter
-from typing import Dict, Iterable, Union, List, Any, Literal, Tuple
+from typing import Dict, Iterable, Union, List, Any, Literal, Tuple, Callable
 from pydantic import BaseModel
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields
@@ -8,6 +8,7 @@ from copy import deepcopy
 from typing import overload
 import json
 import itertools as itt
+import inspect, ast, textwrap
 
 def format_number(val):
     # use K M T Y
@@ -227,6 +228,46 @@ def _pick_field_or_value_strict(dict,field:str|None,value:Any|None=None,default=
     if default is not None: return default
     raise ValueError("Either field, value or default must be provided.")
 
+class ReprUtil:
+    @staticmethod
+    def repr_lambda(lambda_func: Callable) -> str:
+        if hasattr(lambda_func, '__name__') and lambda_func.__name__ != '<lambda>':
+            return lambda_func.__name__
+        try:
+            # pull out the source and normalize indentation
+            source_lines, _ = inspect.getsourcelines(lambda_func)
+            src = textwrap.dedent(''.join(source_lines))
+            # parse it and look for the first Lambda node
+            tree = ast.parse(src)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Lambda):
+                    # ast.get_source_segment gives you exactly the lambda’s text
+                    snippet = ast.get_source_segment(src, node)
+                    return snippet if len(snippet) <= 50 else snippet[:47] + '...'
+        except (OSError, TypeError):
+            pass
+        return '<lambda>'
+    @staticmethod
+    def repr_keys(keys: Iterable[str]) -> str:
+        return ', '.join(f"'{key}'" for key in keys)
+    @staticmethod
+    def repr_item(obj: Any, max_len=10) -> str:
+        if isinstance(obj,(int,bool,float)):
+            return repr(obj)
+        elif isinstance(obj, str):
+            return ReprUtil.repr_str(obj,max_len=max_len)
+        else:
+            return f"<{type(obj).__name__}>"
+    @staticmethod
+    def repr_dict(dict_: Dict[str, Any]) -> str:
+        return "{"+', '.join(f"'{k}': {ReprUtil.repr_item(v)}" for k, v in dict_.items())+ "}"
+    @staticmethod
+    def repr_dict_from_tuples(froms,tos):
+        return ReprUtil.repr_dict({k:v for k,v in zip(froms,tos)})
+    @staticmethod
+    def repr_str(s:str,max_len=35) -> str:
+        s= s.replace("'", "\\'").replace('\n', '\\n').replace('\r', '\\r')
+        return f"'{s[:max_len]}...'" if len(s) > max_len else f"'{s}'"
 
 
 __all__ = [
@@ -239,4 +280,5 @@ __all__ = [
     "IOKeysInput",
     "KeysUtil",
     "CollectionsUtil",
+    "ReprUtil",
 ]

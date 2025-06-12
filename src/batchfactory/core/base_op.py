@@ -2,9 +2,9 @@ from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 from typing import Union, List, Any, Tuple, Iterator, TYPE_CHECKING, Dict, NamedTuple, Set
 from .entry import Entry
-from ..lib.utils import _make_list_of_list
+from ..lib.utils import _make_list_of_list, ReprUtil
 if TYPE_CHECKING:
-    from .op_graph_segment import OpGraphSegment
+    from .op_graph import Graph
 
 class PumpOutput(NamedTuple):
     outputs:Dict[int,Dict[str,Entry]] # {out_port: {entry_idx: Entry}}
@@ -22,26 +22,34 @@ class BaseOp(ABC):
         self.n_in_ports= n_in_ports
         self.n_out_ports = n_out_ports
         self.barrier_level = barrier_level # if True, wait for all other ops of lower barrier level finish before pumping
+        self._tag = None
+    def reset(self):
+        "Reset for stateful nodes"
+        pass
     def resume(self):
         """Resume the state from cache"""
         pass
     @abstractmethod
-    def pump(self,
-             inputs:Dict[int,Dict[str,Entry]],
-             options:PumpOptions) -> PumpOutput:
+    def pump(self,inputs:Dict[int,Dict[str,Entry]],options:PumpOptions) -> PumpOutput:
         """
         Take some entries from in_ports, send some entries to out_ports.
         Checking barrier_level is upper level executer's responsibility
         """
         pass
-
-    def to_segment(self) -> 'OpGraphSegment':
-        from .op_graph_segment import OpGraphSegment
-        return OpGraphSegment.make_seg(self)
-    def __or__(self,other)->'OpGraphSegment':
-        return self.to_segment() | other
+    def to_graph(self) -> 'Graph':
+        from .op_graph import OpGraphConnector
+        return OpGraphConnector.make_graph(self)
+    def __or__(self,other)->'Graph':
+        return self.to_graph() | other
     def __repr__(self):
-        return f"{self.__class__.__name__}()"
+        if self._tag: return self._tag
+        else: return f"{self.__class__.__name__}({self._args_repr()})"
+    def _args_repr(self):
+        return ""
+    def tag(self,tag:str)->'BaseOp':
+        if not isinstance(tag,str) or not tag: raise ValueError("tag must be a non-empty string")
+        self._tag = tag
+        return self
 
 class ApplyOp(BaseOp, ABC):
     "Modifies entries in-place; maps each idx → same idx."

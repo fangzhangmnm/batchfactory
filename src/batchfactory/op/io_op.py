@@ -1,7 +1,8 @@
 from ..core import ApplyOp, BrokerJobStatus, OutputOp, SourceOp
 from ..core.entry import Entry
-from ..lib.utils import _to_list_2, hash_text, hash_texts, hash_json, KeysUtil
-from ..lib.markdown_utils import iter_markdown_lines, iter_markdown_entries, write_markdown
+from ..lib.utils import _to_list_2, hash_text, hash_texts, hash_json, KeysUtil, ReprUtil
+from ..lib.markdown_utils import iter_markdown_lines, iter_markdown_entries, write_markdown, markdown_sort_key
+from .common_op import Sort
 
 from typing import Union, List, Dict, Any, Literal, Iterator, Tuple
 import re
@@ -60,6 +61,7 @@ class ReadJsonl(ReaderOp):
         self.hash_keys = KeysUtil.make_keys(hash_keys) if hash_keys is not None else None
         if self.idx_key is not None and self.hash_keys is not None:
             raise ValueError("Cannot specify both idx_key and hash_keys. Use one or the other.")
+    def _args_repr(self): return ReprUtil.repr_str(self.glob_str)
     def _iter_records(self) -> Iterator[Tuple[str,Dict]]:
         for path in sorted(glob(self.glob_str)):
             if path.endswith('.jsonl'):
@@ -99,6 +101,7 @@ class WriteJsonl(OutputOp):
         self.only_current = only_current
         self.output_keys = _to_list_2(output_keys) if output_keys else None
         self._output_entries = {}
+    def _args_repr(self): return ReprUtil.repr_str(self.path)
     def output_batch(self,entries:Dict[str,Entry])->None:
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         self._output_entries.clear()
@@ -161,6 +164,7 @@ class ReadTxtFolder(ReaderOp):
         self.filename_key = filename_key
         self.glob_str = glob_str
         self.text_key = text_key
+    def _args_repr(self): return ReprUtil.repr_str(self.glob_str)
     def _iter_records(self) -> Iterator[Tuple[str, Dict]]:
         for path in sorted(glob(self.glob_str)):
             if not path.endswith('.txt'):
@@ -195,6 +199,7 @@ class ReadMarkdown(ReaderOp):
         self.directory_key = directory_key
         self.directory_mode = directory_mode
         self.format = format
+    def _args_repr(self): return ReprUtil.repr_str(self.glob_str)
     def _iter_records(self) -> Iterator[Dict[str, Any]]:
         factory = {"lines": iter_markdown_lines, "entries": iter_markdown_entries}[self.format]
         for path in sorted(glob(self.glob_str)):
@@ -226,13 +231,17 @@ class WriteMarkdownEntries(OutputOp):
     def __init__(self, path: str, 
                  context_key: str = "text",
                  keyword_key: str = "keyword",
-                 directory_key: str = "directory",):
+                 directory_key: str = "directory",
+                 sort: bool = True,
+                 ):
         super().__init__()
         self.path = path
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         self.directory_key = directory_key
         self.keyword_key = keyword_key
         self.context_key = context_key
+        self.sort = sort
+    def _args_repr(self): return ReprUtil.repr_str(self.path)
     def output_batch(self, entries: Dict[str, Entry]) -> None:
         tuples = []
         if os.path.exists(self.path):
@@ -245,20 +254,38 @@ class WriteMarkdownEntries(OutputOp):
             context = entry.data.get(self.context_key, "")
             context = remove_markdown_headings(context)
             tuples.append((directory, keyword, context))
-        write_markdown(tuples, self.path, sort=True)
+        write_markdown(tuples, self.path, sort=self.sort)
         print(f"Output {len(entries)} entries to {os.path.abspath(self.path)}")
+
+class SortMarkdownEntries(Sort):
+    def __init__(self,
+                 directory_key: str = "directory",
+                    keyword_key: str = "keyword",
+                    barrier_level = 1,
+    ):
+        super().__init__(custom_func=self._sort_key, barrier_level=barrier_level)
+    def _sort_key(self, data: Dict) -> Tuple:
+        directory = data.get("directory", [])
+        if isinstance(directory, str):
+            directory = directory.split("/")
+        keyword = data.get("keyword", "")
+        return markdown_sort_key((directory, keyword, ""))
+
+
 
 
 class FromList(SourceOp):
     "Create entries from a list of dictionaries or objects, each representing an entry."
     def __init__(self,
                  input_list: List[Dict]|List[Any],
-                 fire_once: bool = True,
                  output_key: str = None,
+                 fire_once: bool = True,
                  ):
         super().__init__(fire_once=fire_once)
         self.input_list = input_list
         self.output_key = output_key
+    def set_input(self, input_list: List[Dict]|List[Any]) -> None:
+        self.input_list = input_list
     def generate_batch(self) -> Dict[str, Entry]:
         entries = {}
         for obj in self.input_list:
@@ -288,6 +315,7 @@ class ToList(OutputOp):
         super().__init__()
         self._output_entries = {}
         self.output_keys = KeysUtil.make_keys(output_keys) if output_keys else None
+    def _args_repr(self): return ReprUtil.repr_keys(self.output_keys) if self.output_keys else ""
     def output_batch(self, entries: Dict[str, Entry]) -> None:
         for idx, entry in entries.items():
             if idx in self._output_entries:
@@ -323,10 +351,11 @@ class PrintField(OutputOp):
         super().__init__()
         self.field = field
         self.first_n = first_n
+    def _args_repr(self): return ReprUtil.repr_str(self.field)
     def output_batch(self,entries:Dict[str,Entry])->None:
         if not entries: return
         for entry in list(entries.values())[:self.first_n]:
-            print(f"Index: {entry.idx}, Revision: {entry.rev}")
+            print(f"Index: {entry.idx}, Revision: {entry.rev} Field: '{self.field}'")
             print(entry.data.get(self.field, None))
             print()
         print()
@@ -342,5 +371,6 @@ __all__ = [
     "ReadMarkdownLines",
     "ReadMarkdownEntries",
     "WriteMarkdownEntries",
+    "SortMarkdownEntries",
     "FromList",
 ]

@@ -32,6 +32,8 @@ class Broker(ABC):
         self.response_cls = response_cls
         self._ledger = _Ledger(cache_path)
         self.verbose=0
+    def reset(self):
+        self._ledger.reset()
     def resume(self):
         self._ledger.resume()
     def enqueue(self, requests: Dict[str,BrokerJobRequest]):
@@ -71,7 +73,7 @@ class Broker(ABC):
         )
     
     def __repr__(self):
-        return f"{self.__class__.__name__}({self._ledger.cache_path})"
+        return f"{self.__class__.__name__}({self._ledger.path})"
 
 class DeferredBroker(Broker, ABC):
     @abstractmethod

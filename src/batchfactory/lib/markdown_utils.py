@@ -52,6 +52,17 @@ def iter_markdown_entries(markdown_path):
     if yieldQ():
         yield current_path[:-1],current_path[-1],current_context
 
+
+def _num_str_key(s: str):
+    m = re.search(r'(\d+)', s)
+    num = int(m.group(1)) if m else 0
+    return (num, s)
+def markdown_sort_key(entry):
+    directory, keyword, _ = entry
+    directory = [_num_str_key(d) for d in directory]
+    keyword = _num_str_key(keyword)
+    return (directory, keyword)
+
 def write_markdown(entries:tuple[list,str,str],markdown_path,mode='w',sort=False):
     '''entries:list of (directory,keyword,content) tuples
     directory is a list of categories, not including keyword'''
@@ -61,7 +72,7 @@ def write_markdown(entries:tuple[list,str,str],markdown_path,mode='w',sort=False
         for i,new_category in enumerate(new_directory):
             if i>=len(old_directory) or old_directory[i]!=new_category:
                 yield i,new_category
-    if sort: entries=sorted({(*x[0],x[1]):x for x in entries}.values())
+    if sort: entries= sorted(entries, key=markdown_sort_key)
     with open(markdown_path,mode,encoding='utf-8') as f:
         for directory,keyword,content in entries:
             for level,category in directory_change_iter(old_directory,directory):
@@ -95,4 +106,5 @@ __all__ = [
     'write_markdown',
     'markdown_lines_to_dict',
     'markdown_entries_to_dict',
+    'markdown_sort_key',
 ]

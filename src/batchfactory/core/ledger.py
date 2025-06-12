@@ -11,12 +11,13 @@ class _Ledger:
     """Cache synced storage based on jsonlines and atomic append
     also supports compact and autocast on retrieve."""
     def __init__(self, cache_path: str):
-        self.cache_path = cache_path
+        self.path = cache_path
         os.makedirs(os.path.dirname(cache_path), exist_ok=True)
         self._index = {} # should be guarded by deepcopy
         self._lock = asyncio.Lock()
         self._load()
-
+    def reset(self):
+        self._index.clear()
     def resume(self):
         self._load()
         if COMPACT_ON_RESUME:
@@ -98,28 +99,28 @@ class _Ledger:
             return self._append_cache_async(updates)
         
     def _append_cache(self,records:Dict):
-        with jsonlines.open(self.cache_path, mode='a') as writer:
+        with jsonlines.open(self.path, mode='a') as writer:
             for item in records.values():
                 writer.write(item)
 
     def _rewrite_cache(self,records:Dict):
-        tmp_path = self.cache_path + '.tmp'
+        tmp_path = self.path + '.tmp'
         with jsonlines.open(tmp_path, mode='w') as writer:
             for item in records.values():
                 writer.write(item)
-        os.replace(tmp_path, self.cache_path)
+        os.replace(tmp_path, self.path)
 
     async def _append_cache_async(self, records:Dict):
         text="".join(json.dumps(item, ensure_ascii=False) + "\n" for item in records.values())
         async with self._lock:
-            async with aiofiles.open(self.cache_path,mode='a',encoding='utf-8') as f:
+            async with aiofiles.open(self.path,mode='a',encoding='utf-8') as f:
                 await f.write(text)
 
     def _load(self):
         self._index.clear()
-        if not os.path.exists(self.cache_path): 
+        if not os.path.exists(self.path): 
             return
-        with jsonlines.open(self.cache_path, 'r') as reader:
+        with jsonlines.open(self.path, 'r') as reader:
             for item in reader:
                 _deep_update(self._index.setdefault(item['idx'],{}), item, delete_none=True, _deepcopy=True)
 
@@ -141,7 +142,6 @@ def _check_input_many(records:Dict):
         if not isinstance(record, dict):
             raise ValueError(f"Please input a dictionary of records, not a single record")
         if "idx" not in record or record["idx"] != dict_idx:
-            print(records)
             raise ValueError(f"Please make sure each record has an 'idx' field that matches the key in the records dictionary.")
         
 def _check_input_one(record:Dict):
