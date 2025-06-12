@@ -15,11 +15,13 @@ class PumpOptions(NamedTuple):
     reload_inputs:bool=False
     dispatch_brokers:bool=False
     mock:bool=False
+    max_barrier_level:int|None=None
 
 class BaseOp(ABC):
-    def __init__(self,n_in_ports:int,n_out_ports:int):
+    def __init__(self,n_in_ports:int,n_out_ports:int,barrier_level:int):
         self.n_in_ports= n_in_ports
         self.n_out_ports = n_out_ports
+        self.barrier_level = barrier_level # if True, wait for all other ops of lower barrier level finish before pumping
     def resume(self):
         """Resume the state from cache"""
         pass
@@ -27,7 +29,10 @@ class BaseOp(ABC):
     def pump(self,
              inputs:Dict[int,Dict[str,Entry]],
              options:PumpOptions) -> PumpOutput:
-        """Take some entries from in_ports, send some entries to out_ports."""
+        """
+        Take some entries from in_ports, send some entries to out_ports.
+        Checking barrier_level is upper level executer's responsibility
+        """
         pass
 
     def to_segment(self) -> 'OpGraphSegment':
@@ -41,7 +46,7 @@ class BaseOp(ABC):
 class ApplyOp(BaseOp, ABC):
     "Modifies entries in-place; maps each idx → same idx."
     def __init__(self):
-        super().__init__(n_in_ports=1, n_out_ports=1)
+        super().__init__(n_in_ports=1, n_out_ports=1, barrier_level=0)
     @abstractmethod
     def update(self, entry: Entry)->None:
         "Update every entry in-place"
@@ -58,7 +63,7 @@ class ApplyOp(BaseOp, ABC):
 class FilterOp(BaseOp, ABC):
     "Drops some entries, keeps others unchanged."
     def __init__(self,consume_rejected:bool):
-        super().__init__(n_in_ports=1, n_out_ports=1)
+        super().__init__(n_in_ports=1, n_out_ports=1, barrier_level=0)
         self.consume_rejected = consume_rejected
     @abstractmethod
     def criteria(self, entry: Entry) -> bool:
@@ -77,7 +82,7 @@ class FilterOp(BaseOp, ABC):
 class RouterOp(BaseOp, ABC):
     "Merges entries of same idx from N ports, then duplicate or route them to M out ports."
     def __init__(self, n_in_ports: int, n_out_ports: int, wait_all:bool):
-        super().__init__(n_in_ports=n_in_ports, n_out_ports=n_out_ports)
+        super().__init__(n_in_ports=n_in_ports, n_out_ports=n_out_ports, barrier_level=0)
         self.wait_all = wait_all
     @abstractmethod
     def route(self, bundle: Dict[int, Entry]) -> Dict[int, Entry]:
@@ -127,7 +132,7 @@ class SplitOp(RouterOp, ABC):
 class SourceOp(BaseOp, ABC):
     """	Generates entries (reads datasets, dice rolls, etc)."""
     def __init__(self,fire_once:bool):
-        super().__init__(n_in_ports=0, n_out_ports=1)
+        super().__init__(n_in_ports=0, n_out_ports=1, barrier_level=0)
         self.fire_once = fire_once
     @abstractmethod
     def generate_batch(self)-> Dict[str, Entry]:
@@ -146,9 +151,10 @@ class SourceOp(BaseOp, ABC):
     
 class BatchOp(BaseOp, ABC):
     "Batch-level shuffle/crosstalk, might drop or insert entries of different idxs."
-    def __init__(self,consume_all_batch:bool):
+    def __init__(self,consume_all_batch:bool, barrier_level:int):
         "consume_all_batch: consume all entries or only ones output by update_batch"
-        super().__init__(n_in_ports=1, n_out_ports=1)
+        if barrier_level<1: raise ValueError("barrier_level of BatchOp must be at least 1")
+        super().__init__(n_in_ports=1, n_out_ports=1, barrier_level=barrier_level)
         self.consume_all_batch = consume_all_batch
     @abstractmethod
     def update_batch(self, batch: Dict[str, Entry]) -> Dict[str, Entry]:
@@ -167,19 +173,20 @@ class BatchOp(BaseOp, ABC):
     
 class OutputOp(BatchOp, ABC):
     "Outputs a batch to disk/console/etc, then sends it to the next node unmodified."
-    def __init__(self):
-        super().__init__(consume_all_batch=True)
+    def __init__(self,barrier_level=1):
+        super().__init__(consume_all_batch=True, barrier_level=barrier_level)
     @abstractmethod
     def output_batch(self, batch: Dict[str, Entry]) -> None:
         pass
     def update_batch(self, batch: Dict[str, Entry]) -> Dict[str, Entry]:
+        if not batch: return {}
         self.output_batch(batch)
         return {**batch}
 
 class SpawnOp(BaseOp, ABC):
     "Create spawn entries on out_port 1, keep master entry unchanged."
     def __init__(self):
-        super().__init__(n_in_ports=1, n_out_ports=2)
+        super().__init__(n_in_ports=1, n_out_ports=2, barrier_level=0)
     @abstractmethod
     def spawn_entries(self, entry: Entry) -> Dict[str, Entry]:
         """Entry->{new_idx:new_Entry}"""
@@ -199,7 +206,7 @@ class SpawnOp(BaseOp, ABC):
 class CollectAllOp(BaseOp, ABC):
     "Update master entry from spawn entries collected from in_port 1. Wait if spawn entries are not ready."
     def __init__(self):
-        super().__init__(n_in_ports=2, n_out_ports=1)
+        super().__init__(n_in_ports=2, n_out_ports=1, barrier_level=0)
 
     @abstractmethod
     def get_master_idx(self, spawn_entry: Entry)->str|None:

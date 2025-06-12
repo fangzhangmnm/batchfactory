@@ -8,14 +8,14 @@ def test_example3_split_and_summarize():
     # model = "gpt-4o-mini@openai"
     model = "deepseek-v3-0324@lambda"
 
-    def AskLLM(prompt, out_field, identifier):
+    def AskLLM(prompt, output_key, identifier):
         g = GenerateLLMRequest(prompt,model=model)
         g |= ConcurrentLLMCall(project[f"cache/llm_call_{identifier}.jsonl"], broker, failure_behavior="retry")
-        g |= ExtractResponseText(output_field=out_field)
+        g |= ExtractResponseText(output_key=output_key)
         g |= CleanupLLMData()
         return g
         
-    g = ReadMarkdownLines("example_data.txt", "keyword", directory_str_field="directory")
+    g = ReadMarkdownLines("example_data.txt")
     g |= Shuffle(42)
     g |= TakeFirstN(1)
     split = Replicate(n_out_ports=3)
@@ -48,8 +48,9 @@ def test_example3_split_and_summarize():
         """,
         "text",4)
 
-    g |= WriteJsonl(project["out/summaries.jsonl"], output_fields=["keyword", "text"])
-    g |= Print()
+    g |= PrintField()
+    g |= WriteJsonl(project["out/summaries.jsonl"], output_keys=["keyword", "text"])
+    g |= WriteMarkdownEntries(project["out/summaries.md"])
 
     g = g.compile()
     g.execute(dispatch_brokers=True, mock=False)

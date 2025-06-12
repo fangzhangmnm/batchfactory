@@ -12,8 +12,9 @@ class CheckpointOp(BaseOp, ABC):
     - constantly save its output to a cache
     - consume all inputs, including the one being invalidated by the newer version in the cache
     """
-    def __init__(self,cache_path: str,keep_all_rev:bool):
-        super().__init__(n_in_ports=1, n_out_ports=1)
+    def __init__(self,cache_path: str,keep_all_rev:bool,barrier_level:int):
+        if barrier_level < 1: raise ValueError("barrier_level of CheckpointOp must be at least 1")
+        super().__init__(n_in_ports=1, n_out_ports=1, barrier_level=barrier_level)
         self._ledger = _Ledger(cache_path)
         self.keep_all_rev = keep_all_rev
         self.emitted_revs = {} # prevent the same entry being emitted twice
@@ -65,15 +66,23 @@ class CheckpointOp(BaseOp, ABC):
             submit_records[record_idx] = record
         self._ledger.update_many(submit_records,compact=True)
     
-    def _get_up_to_date_batch(self)->Dict[str, Entry]:
-        "get entries of the newest rev"
+    def _get_up_to_date_batch(self,input_batch:Dict[str,Entry])->Dict[str, Entry]:
+        """
+        Get entries in the cache that
+        1. only output entries have the same idx in input_batch
+        2. have the latest revision in the cache, and its rev >= input_batch[idx].rev
+        """
         records = self._ledger.get_all()
         newest_entries = {}
         for record in records.values():
-            entry = self._build_entry(record)
-            if entry.idx in newest_entries and entry.rev < newest_entries[entry.idx].rev:
+            cached_entry = self._build_entry(record)
+            if cached_entry.idx not in input_batch:
                 continue
-            newest_entries[entry.idx] = entry
+            if cached_entry.rev < input_batch[cached_entry.idx].rev:
+                continue
+            if cached_entry.idx in newest_entries and cached_entry.rev < newest_entries[cached_entry.idx].rev:
+                continue
+            newest_entries[cached_entry.idx] = cached_entry
         return newest_entries
     
     def pump(self, inputs: Dict[int, Dict[str, Entry]], options: PumpOptions) -> PumpOutput:
@@ -82,10 +91,13 @@ class CheckpointOp(BaseOp, ABC):
             for entry in input_batch.values():
                 self.prepare_input(entry)
             self._deposit_batch(input_batch)
-            del input_batch
-        self.process_cached_batch(self._get_up_to_date_batch(), options)
+
+        cached_batch = self._get_up_to_date_batch(input_batch)
+        self.process_cached_batch(cached_batch, options)
+        cached_batch = self._get_up_to_date_batch(input_batch)
+
         outputs,consumed,did_emit={0:{}}, {0:set()}, False
-        for idx,entry in self._get_up_to_date_batch().items():
+        for idx,entry in cached_batch.items():
             if not self.is_ready_for_output(entry):
                 continue
             if idx in self.emitted_revs and entry.rev <= self.emitted_revs[idx]:
@@ -120,8 +132,8 @@ class CheckpointOp(BaseOp, ABC):
 
 class CheckPoint(CheckpointOp):
     "A no-op checkpoint that saves inputs to the cache, and resumes from the cache."
-    def __init__(self, cache_path: str, keep_all_rev: bool = True):
-        super().__init__(cache_path, keep_all_rev)
+    def __init__(self, cache_path: str, keep_all_rev: bool = True, barrier_level: int = 1):
+        super().__init__(cache_path, keep_all_rev, barrier_level)
     def prepare_input(self, entry: Entry) -> None:
         pass
     def process_cached_batch(self, cached_newest_batch: Dict[str, Entry], options: PumpOptions) -> None:

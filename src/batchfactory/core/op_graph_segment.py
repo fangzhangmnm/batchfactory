@@ -9,6 +9,7 @@ class OpGraphSegment:
         self.edges:List[OpGraphEdge] = []
         self.head:BaseOp = None
         self.tail:BaseOp = None
+    def to_segment(self):return self
     @classmethod
     def make_seg(cls,seg:'OpGraphSegment|BaseOp')->'OpGraphSegment':
         if isinstance(seg, OpGraphSegment): return seg
@@ -34,7 +35,7 @@ class OpGraphSegment:
     def __repr__(self):
         return _repr_graph("OpGraphSegment()",self.nodes, self.edges)
     def compile(self)->'OpGraph':
-        return OpGraph(self.nodes, self.edges)
+        return OpGraph(self.nodes, self.edges, self.tail)
     def is_in_port_abaliable(self,node:BaseOp,port:int)->bool:
         return not any(e for e in self.edges if e.target == node and e.target_port == port)
     def is_out_port_abaliable(self,node:BaseOp,port:int)->bool:

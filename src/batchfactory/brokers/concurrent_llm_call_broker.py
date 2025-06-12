@@ -46,7 +46,7 @@ class ConcurrentLLMCallBroker(ImmediateBroker):
             if self.verbose>=1:
                 print(f"Processing request {request.custom_id} with model {request.model}")
             if self.__mock:
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.1)
                 return _get_dummy_response(request)
             completion:ChatCompletion = await client.chat.completions.create(
                 model=get_model_name(request.model),

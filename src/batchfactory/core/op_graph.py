@@ -13,14 +13,16 @@ class OpGraphEdge(NamedTuple):
     target_port: int=0
 
 class OpGraph:
-    def __init__(self, nodes:List[BaseOp], edges:List[OpGraphEdge]):
+    def __init__(self, nodes:List[BaseOp], edges:List[OpGraphEdge],tail:BaseOp=None):
         # execution order is determined by order in the nodes array
         self.nodes = nodes
         self.edges = edges
         self.output_cache:Dict[Tuple[BaseOp,int],Dict[str,Entry]]={}
         self.output_revs:Dict[Tuple[BaseOp,int],Dict[str,int]]={}  # used to reject entry with the same revision emitted twice in the same run
-
+        self.tail = tail
     def _pump_node(self,node:BaseOp,options:PumpOptions)->bool:
+        if options.max_barrier_level is not None and node.barrier_level > options.max_barrier_level:
+            return False
         inputs:Dict[int,Dict[str,Entry]] = self._collect_node_inputs(node, use_deepcopy=True)
         pump_output:PumpOutput = node.pump(inputs=inputs, options=options)
         self._update_node_outputs(node, pump_output.outputs)
@@ -74,46 +76,91 @@ class OpGraph:
             port_revs[idx] = entry.rev
             self._has_update_flag = True
 
-    def pump(self, options:PumpOptions)->bool:
+    def pump(self, options:PumpOptions)->int:
         """ 
         Pump the graph, processing each node in order.
-        Returns True if any node has updated its output.
+        Returns the max barrier level of the node that emitted an update, or None if no updates were emitted.
         """
-        did_emit = False
+        max_emitted_barrier_level = None
         for node in self.nodes:
-            if self._pump_node(node,options):
-                did_emit = True
-        return did_emit
+            if options.max_barrier_level is not None and node.barrier_level > options.max_barrier_level:
+                continue
+            did_emit = self._pump_node(node, options)
+            if did_emit:
+                max_emitted_barrier_level = max(max_emitted_barrier_level or float('-inf'), node.barrier_level)
+        return max_emitted_barrier_level
     def clear_output_cache(self):
         self.output_cache.clear()
     def resume(self):
         for node in self.nodes:
             node.resume()
     
-    def execute(self, dispatch_brokers=False, mock=False, max_iterations = 1000):
-        "clear output cache, resume, load inputs, and pump until no more updates"
+    # def execute(self, dispatch_brokers=False, mock=False, max_iterations = 1000):
+    #     "clear output cache, resume, load inputs, and pump until no more updates"
+    #     self.clear_output_cache()
+    #     self.resume()
+    #     first = True
+    #     did_emit = True
+    #     iterations = 0
+    #     while True:
+    #         while True:
+    #             if iterations >= max_iterations: break
+    #             did_emit = self.pump(PumpOptions(
+    #                 dispatch_brokers = False,
+    #                 mock = mock,
+    #                 reload_inputs = first))
+    #             iterations +=1
+    #             first = False
+    #             if not did_emit: break
+    #         if iterations >= max_iterations: break
+    #         did_emit = self.pump(PumpOptions(
+    #             dispatch_brokers=dispatch_brokers,
+    #             mock=mock,
+    #             reload_inputs=False))
+    #         iterations += 1
+    #         if not did_emit: break
+    #     return list(self.output_cache.get((self.tail, 0), {}).values()) if self.tail else []
+
+    def get_barrier_levels(self):
+        return sorted(set(n.barrier_level for n in self.nodes))
+
+    def execute(self, dispatch_brokers=False, mock=False, max_iterations = 1000, max_barrier_level:int|None = None):
+        barrier_levels = sorted(barrier_level
+            for barrier_level in {n.barrier_level for n in self.nodes} | {1}
+            if max_barrier_level is None or barrier_level <= max_barrier_level
+        )
         self.clear_output_cache()
         self.resume()
         first = True
-        did_emit = True
         iterations = 0
+        current_barrier_level_idx = 0
         while True:
-            while True:
-                if iterations >= max_iterations: break
-                did_emit = self.pump(PumpOptions(
-                    dispatch_brokers = False,
-                    mock = mock,
-                    reload_inputs = first))
-                iterations +=1
-                first = False
-                if not did_emit: break
-            if iterations >= max_iterations: break
-            did_emit = self.pump(PumpOptions(
-                dispatch_brokers=dispatch_brokers,
+            current_barrier_level = barrier_levels[current_barrier_level_idx]
+            emit_level = self.pump(PumpOptions(
+                dispatch_brokers=(current_barrier_level>0) and dispatch_brokers,
                 mock=mock,
-                reload_inputs=False))
+                reload_inputs=first,
+                max_barrier_level=current_barrier_level))
             iterations += 1
-            if not did_emit: break
+            first = False
+            if emit_level is None:
+                if current_barrier_level_idx < len(barrier_levels) - 1:
+                    current_barrier_level_idx += 1
+                    continue
+                else:
+                    break
+            else:
+                current_barrier_level_idx = min(current_barrier_level_idx, barrier_levels.index(emit_level))
+            if iterations >= max_iterations:
+                break
+        if self.tail:
+            return list(self.output_cache.get((self.tail, 0), {}).values())
+
+
+
+                
+            
+
 
     def __repr__(self):
         from .op_graph_segment import _repr_graph

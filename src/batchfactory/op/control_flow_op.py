@@ -1,6 +1,6 @@
 from ..core.op_base import *
 from ..core.entry import Entry
-from ..lib.utils import FieldsRouter, hash_json
+from ..lib.utils import hash_json, KeysUtil, CollectionsUtil
 
 
 from typing import List, Tuple, Dict, Callable, TYPE_CHECKING
@@ -11,32 +11,32 @@ if TYPE_CHECKING:
     from ..core.op_graph_segment import OpGraphSegment
 
 class Replicate(SplitOp):
-    "Replicate an entry to all out_ports, with optionally `replica_idx_field` field set to the out_port index."
-    def __init__(self, n_out_ports:int = 2, replica_idx_field:str|None="replica_idx"):
+    "Replicate an entry to all out_ports, with optionally `replica_idx_key` field set to the out_port index."
+    def __init__(self, n_out_ports:int = 2, replica_idx_key:str|None="replica_idx"):
         super().__init__(n_out_ports=n_out_ports)
-        self.replica_idx_field = replica_idx_field
+        self.replica_idx_key = replica_idx_key
     def split(self, entry: Entry) -> Dict[int, Entry]:
         output_entries = {}
         for i in range(self.n_out_ports):
             new_entry = deepcopy(entry)
-            if self.replica_idx_field:
-                new_entry.data[self.replica_idx_field] = i
+            if self.replica_idx_key:
+                new_entry.data[self.replica_idx_key] = i
             output_entries[i] = new_entry
         return output_entries
     
 class Collect(MergeOp):
-    "Collect data from in_port 1"
-    def __init__(self, *fields):
+    "Collect data from in_port 1, to in_port 0"
+    def __init__(self, *keys):
         """
         - collects data from in_port 1
-        - `Collect('field1', 'field2')` 
+        - `Collect('key1', 'key2')` 
         """
         super().__init__(n_in_ports=2, wait_all=True)
-        self.field_mappings = FieldsRouter(*fields, style="tuple")
+        self.keys = KeysUtil.make_keys(*keys, allow_empty=False)
     def merge(self, entries: Dict[int, Entry]) -> Entry:
-        for field in self.field_mappings.froms:
-            if field in entries[1].data:
-                entries[0].data[field] = entries[1].data[field]
+        for key in self.keys:
+            if key in entries[1].data:
+                entries[0].data[key] = entries[1].data[key]
         return entries[0]
 
 
@@ -59,13 +59,13 @@ class BeginIf(BeginIfOp):
     - `BeginIf(lambda data: data['condition'])`
     - `BeginIf(lambda x, y: x > y, 'x', 'y')`
     """
-    def __init__(self,criteria:Callable,*fields):
+    def __init__(self,criteria:Callable,*keys):
         super().__init__()
         self._criteria = criteria
-        self.router = FieldsRouter(*fields, style="tuple") if fields else None
+        self.criteria_keys = KeysUtil.make_keys(*keys) if keys else None
     def criteria(self, entry: Entry) -> bool:
-        if self.router:
-            return self._criteria(*self.router.read_tuple(entry.data))
+        if self.criteria_keys is not None:
+            return self._criteria(*KeysUtil.read_dict(entry.data, self.criteria_keys))
         else:
             return self._criteria(entry.data)
     
@@ -84,7 +84,6 @@ def If(criteria:Callable, true_chain:'OpGraphSegment|BaseOp|None', false_chain=N
     """
     - `If(lambda data: data['condition'], true_chain, false_chain)`
     """
-    from ..core.op_graph_segment import OpGraphSegment
     begin = BeginIf(criteria)
     end = EndIf()
     if false_chain is not None: 
@@ -92,7 +91,7 @@ def If(criteria:Callable, true_chain:'OpGraphSegment|BaseOp|None', false_chain=N
     else:
         main_chain = begin | end
     if true_chain is not None:
-        true_chain = OpGraphSegment.make_seg(true_chain)
+        true_chain = true_chain.to_segment()
         main_chain.wire(begin, true_chain, 1, 0)
         main_chain.wire(true_chain, end, 0, 1)
     else:
@@ -149,13 +148,13 @@ class LoopOp(RouterOp,ABC):
 
 class WhileNode(LoopOp):
     "Please see `While` function for usage."
-    def __init__(self, criteria, *criteria_fields):
+    def __init__(self, criteria, *criteria_keys):
         super().__init__()
         self._criteria = criteria
-        self.criteria_router = FieldsRouter(*criteria_fields, style="tuple") if criteria_fields else None
+        self.criteria_keys = KeysUtil.make_keys(*criteria_keys) if criteria_keys else None
     def criteria(self, entry: Entry) -> bool:
-        if self.criteria_router:
-            return self._criteria(*self.criteria_router.read_tuple(entry.data))
+        if self.criteria_keys is not None:
+            return self._criteria(*self.criteria_keys.read_keys(entry.data))
         else:
             return self._criteria(entry.data)
         
@@ -163,123 +162,189 @@ def While(criteria:Callable, body_chain:'OpGraphSegment|BaseOp') -> 'OpGraphSegm
     """
     - `While(lambda data: data['condition'], loop_body)`
     """
-    from ..core.op_graph_segment import OpGraphSegment
-    node = WhileNode(criteria)
-    main_chain = OpGraphSegment.make_seg(node)
-    body_chain = OpGraphSegment.make_seg(body_chain)
-    main_chain.wire(node, body_chain, 1, 0)
-    main_chain.wire(body_chain, node, 0, 1)
+    loop_nome = WhileNode(criteria)
+    main_chain = loop_nome.to_segment()
+    body_chain = body_chain.to_segment()
+    main_chain.wire(loop_nome, body_chain, 1, 0)
+    main_chain.wire(body_chain, loop_nome, 0, 1)
     return main_chain
 
 class RepeatNode(LoopOp):
     "See `Repeat` function for usage."
-    def __init__(self, max_rounds=None, rounds_field="rounds", max_rounds_field=None, initial_value:int|None=0):
+    def __init__(self, max_rounds=None, rounds_key="rounds", max_rounds_key=None, initial_value:int|None=0):
         super().__init__()
-        self.rounds_field = rounds_field
+        self.rounds_key = rounds_key
         self.initial_value:int|None = initial_value
         self.max_rounds = max_rounds
-        self.max_rounds_field = max_rounds_field
-        if max_rounds is None and max_rounds_field is None:
-            raise ValueError("Either max_rounds or max_rounds_field must be provided.")
+        self.max_rounds_key = max_rounds_key
+        if max_rounds is None and max_rounds_key is None:
+            raise ValueError("Either max_rounds or max_rounds_key must be provided.")
     def initialize(self, entry: Entry) -> None:
         if self.initial_value is not None:
-            entry.data[self.rounds_field] = self.initial_value
+            entry.data[self.rounds_key] = self.initial_value
         else:
-            if self.rounds_field not in entry.data:
-                raise ValueError(f"Entry does not have field '{self.rounds_field}' to initialize the loop count.")
+            if self.rounds_key not in entry.data:
+                raise ValueError(f"Entry does not have field '{self.rounds_key}' to initialize the loop count.")
     def criteria(self, entry: Entry) -> bool:
-        max_rounds = _get_field_or_value(entry.data, self.max_rounds_field, self.max_rounds)
-        finished_rounds = entry.data[self.rounds_field]
+        max_rounds = _get_field_or_value(entry.data, self.max_rounds_key, self.max_rounds)
+        finished_rounds = entry.data[self.rounds_key]
         return finished_rounds < max_rounds
     def pre_increment(self, entry: Entry) -> None:
         # note we use pre_increment instead of post_increment here
-        entry.data[self.rounds_field] += 1
+        entry.data[self.rounds_key] += 1
 
 
 def Repeat(body_chain:'OpGraphSegment|BaseOp', 
-           max_rounds=None, rounds_field="rounds", max_rounds_field=None, initial_value:int|None=0):
+           max_rounds=None, rounds_key="rounds", max_rounds_key=None, initial_value:int|None=0):
     """
     - `Repeat(loop_body,5,"rounds")`
-    - `Repeat(loop_body,max_rounds_field='max_rounds')`
+    - `Repeat(loop_body,max_rounds_key='max_rounds')`
     - Note the subtle difference compared to `for` clause in c language:
         - **rounds represents how many times it enters the loop body**
         - for example, `Repeat(loop_body,5)` results in `rounds` being 1,2,3,4,5 in loop body, and 5 after exiting the loop
-    - If `initial_value` is set to None, it will fetch the initial value from `rounds_field`
+    - If `initial_value` is set to None, it will fetch the initial value from `rounds_key`
     """
-    from ..core.op_graph_segment import OpGraphSegment
-    node = RepeatNode(max_rounds=max_rounds, rounds_field=rounds_field, 
-                      max_rounds_field=max_rounds_field, initial_value=initial_value)
-    main_chain = OpGraphSegment.make_seg(node)
-    body_chain = OpGraphSegment.make_seg(body_chain)
+    node = RepeatNode(max_rounds=max_rounds, rounds_key=rounds_key, 
+                      max_rounds_key=max_rounds_key, initial_value=initial_value)
+    main_chain = node.to_segment()
+    body_chain = body_chain.to_segment()
     main_chain.wire(node, body_chain, 1, 0)
     main_chain.wire(body_chain, node, 0, 1)
     return main_chain
 
-class SpawnFromList(SpawnOp):
+
+
+
+def _explode_entry_by_lists(entry: Entry, 
+                    in_keys:List[str], out_keys:List[str],
+                    master_idx_key: str | None = None,
+                    list_idx_key: str | None = None) -> Dict[str, Entry]:
+    """Explode an entry to multiple entries based on the router."""
+    in_keys,out_keys = KeysUtil.make_keys_map(in_keys, out_keys)
+    output_entries = {}
+    in_lists = KeysUtil.read_dict(entry.data, in_keys)
+    in_lists = CollectionsUtil.broadcast_lists(in_lists)
+    in_tuples = CollectionsUtil.pivot_cascaded_list(in_lists)
+    for list_idx,in_tuple in enumerate(in_tuples):
+        new_data = {}
+        KeysUtil.write_dict(new_data, out_keys, *in_tuple)
+        if master_idx_key is not None:
+            new_data[master_idx_key] = entry.idx
+        if list_idx_key is not None:
+            new_data[list_idx_key] = list_idx
+        spawn_idx = hash_json(new_data)
+        spawn_entry = Entry(idx=spawn_idx, data=new_data)
+        output_entries[spawn_idx] = spawn_entry
+    return output_entries
+
+
+class ExplodeList(BatchOp):
     "Explode a list to multiple entries, each with a single item from the list."
+    def __init__(self, in_lists_keys="list", out_lists_keys="item",
+                 master_idx_key="master_idx", list_idx_key="list_idx"):
+        super().__init__(consume_all_batch=True, barrier_level=0)
+        self.in_keys, self.out_keys = KeysUtil.make_keys_map(in_lists_keys, out_lists_keys)
+        self.master_idx_key = master_idx_key
+        self.list_idx_key = list_idx_key
+    def update_batch(self, batch: Dict[str, Entry]) -> Dict[str, Entry]:
+        output_entries = {}
+        for entry in batch.values():
+            output_entries.update(_explode_entry_by_lists(entry, self.in_keys, self.out_keys,
+                                                 master_idx_key=self.master_idx_key,
+                                                 list_idx_key=self.list_idx_key))
+        return output_entries
+
+
+class SpawnFromList(SpawnOp):
+    "Explode a list to multiple entries to port 1, each with a single item from the list."
     def __init__(self,
-                 list_field="list",
-                 item_field="item",
-                 master_idx_field="master_idx",
-                 list_idx_field="list_idx",
-                 spawn_idx_list_field="spawn_idx_list",
+                 in_lists_keys="list",
+                 out_items_keys="item",
+                 master_idx_key="master_idx",
+                 list_idx_key="list_idx",
+                 spawn_idx_list_key="spawn_idx_list",
     ):
         super().__init__()
-        self.list_field = list_field
-        self.item_field = item_field
-        self.master_idx_field = master_idx_field
-        self.list_idx_field = list_idx_field
-        self.spawn_idx_list_field = spawn_idx_list_field
+        self.in_lists_keys, self.out_items_keys = KeysUtil.make_keys_map(in_lists_keys, out_items_keys)
+        self.master_idx_key = master_idx_key
+        self.list_idx_key = list_idx_key
+        self.spawn_idx_list_key = spawn_idx_list_key
     def spawn_entries(self, entry: Entry) -> Dict[str, Entry]:
         """Entry->{new_idx:new_Entry}"""
-        items = entry.data.get(self.list_field, [])
-        if not isinstance(items, list):
-            raise ValueError(f"Field '{self.list_field}' is not a list.")
-        output_entries = {}
-        for list_idx, item in enumerate(items):
-            new_data = {self.item_field: item}
-            if self.master_idx_field is not None:
-                new_data[self.master_idx_field] = entry.idx
-            if self.list_idx_field is not None:
-                new_data[self.list_idx_field] = list_idx
-            spawn_idx = hash_json(new_data)
-            spawn_entry = Entry(idx=spawn_idx, data=new_data)
-            output_entries[spawn_idx] = spawn_entry
-        if self.spawn_idx_list_field is not None:
-            entry.data[self.spawn_idx_list_field] = list(output_entries.keys())
+        output_entries = _explode_entry_by_lists(entry, self.in_lists_keys, self.out_items_keys,
+                                         master_idx_key=self.master_idx_key,
+                                         list_idx_key=self.list_idx_key)
+        if self.spawn_idx_list_key is not None:
+            entry.data[self.spawn_idx_list_key] = list(output_entries.keys())
         return output_entries
             
 class CollectAllToList(CollectAllOp):
-    "Concentrate items from multiple entries into a list."
+    "Concentrate items from multiple entries on port 1 into a list."
     def __init__(self, 
-                item_field="item",
-                list_field="list",
-                master_idx_field="master_idx",
-                list_idx_field="list_idx",
-                spawn_idx_list_field="spawn_idx_list",
+                in_items_keys="item",
+                out_lists_keys="list",
+                master_idx_key="master_idx",
+                list_idx_key="list_idx",
+                spawn_idx_list_key="spawn_idx_list",
     ):
         super().__init__()
-        self.list_field = list_field
-        self.item_field = item_field
-        self.master_idx_field = master_idx_field
-        self.list_idx_field = list_idx_field
-        self.spawn_idx_list_field = spawn_idx_list_field
+        self.in_items_keys, self.out_lists_keys = KeysUtil.make_keys_map(in_items_keys, out_lists_keys)
+        self.master_idx_key = master_idx_key
+        self.list_idx_key = list_idx_key
+        self.spawn_idx_list_key = spawn_idx_list_key
     def get_master_idx(self, spawn: Entry)->str|None:
-        return spawn.data[self.master_idx_field]
+        return spawn.data[self.master_idx_key]
     def is_ready(self,master_entry: Entry, spawn_bundle:Dict[str,Entry]) -> bool:
-        for spawn_idx in master_entry.data[self.spawn_idx_list_field]:
+        for spawn_idx in master_entry.data[self.spawn_idx_list_key]:
             if spawn_idx not in spawn_bundle:
                 return False
         return True
     def update_master(self, master_entry: Entry, spawn_bundle: Dict[str, Entry])->None:
-        items = [] 
-        for spawn_idx in master_entry.data[self.spawn_idx_list_field]:
-            item = spawn_bundle[spawn_idx].data[self.item_field]
-            items.append(item)
-        master_entry.data[self.list_field] = items
-
+        zipped_output_lists = []
+        for spawn_idx in master_entry.data[self.spawn_idx_list_key]:
+            zipped_output_lists.append(KeysUtil.read_dict(spawn_bundle[spawn_idx].data, self.in_items_keys))
+        KeysUtil.write_dict(master_entry.data, self.out_lists_keys, *zip(*zipped_output_lists))
         
+def ListParallel(spawn_body:'OpGraphSegment|BaseOp',
+        in_lists_keys:str="list",
+        out_items_keys:str|None="item",
+        in_items_keys:str|None=None,
+        out_lists_keys:str|None=None,
+        master_idx_key="master_idx",
+        list_idx_key="list_idx",
+        spawn_idx_list_key="spawn_idx_list",
+        master_body:'OpGraphSegment|BaseOp|None'=None,
+    ):
+    if out_items_keys is None: 
+        out_items_keys = in_lists_keys
+    if in_items_keys is None:
+        in_items_keys = out_items_keys
+    if out_lists_keys is None:
+        out_lists_keys = in_lists_keys
+    Begin = SpawnFromList(
+        in_lists_keys=in_lists_keys,
+        out_items_keys=out_items_keys,
+        master_idx_key=master_idx_key,
+        list_idx_key=list_idx_key,
+        spawn_idx_list_key=spawn_idx_list_key
+    )
+    End = CollectAllToList(
+        in_items_keys=in_items_keys or out_items_keys,
+        out_lists_keys=out_lists_keys or in_lists_keys,
+        master_idx_key=master_idx_key,
+        list_idx_key=list_idx_key,
+        spawn_idx_list_key=spawn_idx_list_key
+    )
+    if master_body is not None:
+        main_chain = Begin | master_body | End
+    else:
+        main_chain = Begin | End
+    spawn_body = spawn_body.to_segment()
+    main_chain.wire(Begin, spawn_body, 1, 0)
+    main_chain.wire(spawn_body, End, 0, 1)
+    return main_chain
 
+          
 
 
 
@@ -299,6 +364,8 @@ __all__ = [
     "While",
     "RepeatNode",
     "Repeat",
+    "ExplodeList",
     "SpawnFromList",
     "CollectAllToList",
+    "ListParallel",
 ]

@@ -23,24 +23,29 @@ class BrokerOp(CheckpointOp,ABC):
     def __init__(self,
                     cache_path: str,
                     broker: Broker,
-                    status_field: str = "status",
-                    job_idx_field: str = "job_idx",
+                    input_key: str,
+                    output_key: str,
+                    status_key: str = "status",
+                    job_idx_key: str = "job_idx",
                     keep_all_rev: bool = True,
-                    failure_behavior:BrokerFailureBehavior = BrokerFailureBehavior.STAY
+                    failure_behavior:BrokerFailureBehavior = BrokerFailureBehavior.STAY,
+                    barrier_level: int = 1
                     ):
-            super().__init__(cache_path, keep_all_rev)
+            super().__init__(cache_path, keep_all_rev, barrier_level)
             self.broker = broker
-            self.status_field = status_field
+            self.input_key = input_key
+            self.output_key = output_key
+            self.status_key = status_key
             self.failure_behavior = failure_behavior
-            self.job_idx_field = job_idx_field
+            self.job_idx_key = job_idx_key
     def resume(self):
         super().resume()
         self.broker.resume()
     def prepare_input(self, entry: Entry) -> None:
-        entry.data[self.status_field] = BrokerJobStatus.QUEUED.value
-        entry.data[self.job_idx_field] = self.generate_job_idx(entry)
+        entry.data[self.status_key] = BrokerJobStatus.QUEUED.value
+        entry.data[self.job_idx_key] = self.generate_job_idx(entry)
     def is_ready_for_output(self, entry: Entry) -> bool:
-        state = BrokerJobStatus(entry.data[self.status_field])
+        state = BrokerJobStatus(entry.data[self.status_key])
         if state == BrokerJobStatus.DONE:
             return True
         if state == BrokerJobStatus.FAILED and self.failure_behavior == BrokerFailureBehavior.EMIT:
@@ -54,7 +59,7 @@ class BrokerOp(CheckpointOp,ABC):
         """
         requests:Dict[str,BrokerJobRequest] = {}
         for entry in queued_entries.values():
-            job_idx = entry.data[self.job_idx_field]
+            job_idx = entry.data[self.job_idx_key]
             request_object = self.get_request_object(entry)
             requests[job_idx] = BrokerJobRequest(
                 job_idx=job_idx,
@@ -66,7 +71,7 @@ class BrokerOp(CheckpointOp,ABC):
 
         # now update the status of the entries in the cache
         for entry in queued_entries.values():
-            entry.data[self.status_field] = BrokerJobStatus.QUEUED.value
+            entry.data[self.status_key] = BrokerJobStatus.QUEUED.value
         self.update_batch(queued_entries)
 
     # @abstractmethod
@@ -110,14 +115,14 @@ class BrokerOp(CheckpointOp,ABC):
                 print(f"Response {response.job_idx} has no matching entry in the ledger, skipping.")
                 continue
             entry:Entry = self._get_entry(entry_idx, rev=rev)
-            if entry.data[self.job_idx_field] != response.job_idx:
+            if entry.data[self.job_idx_key] != response.job_idx:
                 # this is a common situation when the same entry_idx on different parallel routes enters the same broker
                 continue
-            entry.data[self.status_field] = response.status.value
+            entry.data[self.status_key] = response.status.value
             if response.status.is_terminal() and response.response_object is not None:
-                entry.data[self.output_field] = response.response_object.model_dump()
+                entry.data[self.output_key] = response.response_object.model_dump()
             else:
-                entry.data[self.output_field] = None
+                entry.data[self.output_key] = None
             consumed_job_idxs.add(response.job_idx)
             batch[entry.idx] = entry
         return batch, consumed_job_idxs
@@ -135,7 +140,7 @@ class BrokerOp(CheckpointOp,ABC):
 
         queued_entries = {}
         for entry in cached_newest_batch.values():
-            state = BrokerJobStatus(entry.data[self.status_field])
+            state = BrokerJobStatus(entry.data[self.status_key])
             if state == BrokerJobStatus.QUEUED:
                 queued_entries[entry.idx] = entry
             elif state == BrokerJobStatus.FAILED and self.failure_behavior == BrokerFailureBehavior.RETRY:

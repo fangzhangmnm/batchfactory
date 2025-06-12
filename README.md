@@ -27,7 +27,7 @@ broker  = bf.brokers.ConcurrentLLMCallBroker(project["cache/llm_broker.jsonl"])
 # Rewrite the first three passages of every *.txt file into four‑line poems.
 
 g = (
-    ReadMarkdownLines("./data/*.txt", key_field="keyword", directory_str_field="directory")
+    ReadMarkdownLines("./data/*.txt", keyword_key="keyword", directory_key="directory")
     | Shuffle(42)
     | TakeFirstN(3)
     | GenerateLLMRequest(
@@ -36,7 +36,7 @@ g = (
     )
     | ConcurrentLLMCall(project["cache/llm_call.jsonl"], broker)
     | ExtractResponseText()
-    | WriteJsonl(project["out/poems.jsonl"], output_fields=["keyword", "text", "directory"])
+    | WriteJsonl(project["out/poems.jsonl"], output_keys=["keyword", "text", "directory"])
     | Print()
 )
 
@@ -49,9 +49,12 @@ Run it twice – everything after the first run is served from the on‑disk led
 
 ## Why BatchFactory?  **Three killer moves**
 
-| 📦 Mass data distillation & cleanup                                                                                                                                                                                                                             | 🎭 Multi‑agent, multi‑round workflows                                                                                                                                                                   | 🔥 Hierarchical spawning for long text                                                                                                                                                                                   |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Chain `GenerateLLMRequest → ConcurrentLLMCall → ExtractResponseText` behind keyword or file sources to **bulk‑create, filter, or refine datasets** (think millions of Q\&A rows, code explanations, translation pairs) with caching and cost tracking built‑in. | `Repeat` plus chat helpers let you spin up translation swarms, code‑review pairs, or tutoring agents in **5 minutes of code** – conversations live in `chat_history`, cost and revisions are automatic. | `SpawnFromList` explodes complex items into fine‑grained subtasks, runs them **in parallel**, then `CollectAllToList` stitches results back – perfect for beat→scene→arc analy­sis or any long, messy document pipeline. |
+## Why BatchFactory?  **Three killer moves**
+
+| 🏭 Mass data distillation & cleanup | 🎭 Multi-agent, multi-round workflows | 🌲 Hierarchical spawning (`ListParallel`) |
+|---|---|---|
+| Chain `GenerateLLMRequest → ConcurrentLLMCall → ExtractResponseText` behind keyword or file sources to **bulk-create, filter, or refine datasets** (think millions of Q&A rows, code explanations, translation pairs) with caching and cost tracking built-in. | `Repeat` plus chat helpers let you spin up translation swarms, code-review pairs, or tutoring agents in **5 minutes of code** – conversations live in `chat_history`, cost and revisions are automatic. | `ListParallel` explodes complex items into fine-grained subtasks, runs them **in parallel**, then auto-collects results – perfect for beat → scene → arc analysis or any long, messy document pipeline. |
+
 
 ---
 
@@ -70,23 +73,27 @@ g = ( ReadMarkdownLines("story.txt", "keyword")
       | ChatHistoryToText() | Print() )
 ```
 
-### Spawn snippet (chapter → paragraph → chapter synopsis)
-
+### Spawn snippet (chapter → paragraph → synopsis with `ListParallel`)
 ```python
 project = bf.CacheFolder("spawn_demo", 1, 0, 0)
 broker  = bf.brokers.ConcurrentLLMCallBroker(project["cache/llm.jsonl"])
 
-g = ( ReadMarkdownLines("novel/*.md", "chapter")                 # each entry = a chapter
-      | SpawnFromList("paragraphs", "para")                         # fan‑out per paragraph
-      | GenerateLLMRequest("Summarise:\n{para}", model="gpt-4o-mini@openai")
-      | ConcurrentLLMCall(project["cache/para_sum.jsonl"], broker)
-      | CollectAllToList("text", "chapter_summaries")               # wait until ALL paras done
-      | GenerateLLMRequest("Chapter synopsis:\n{chapter_summaries}",
+def ParaSummary():
+    s = GenerateLLMRequest("Summarise:\n{paragraph}", model="gpt-4o-mini@openai")
+    s |= ConcurrentLLMCall(project["cache/ps.jsonl"], broker)
+    s |= ExtractResponseText()
+    return s
+
+g = ( ReadMarkdownLines("novel/*.md", "chapter")         # each entry = a chapter
+      | ListParallel(ParaSummary(),                      # spawn per paragraph
+                     in_lists_keys="paragraphs",
+                     out_items_keys="paragraph",
+                     in_items_keys="summary",
+                     out_lists_keys="para_summaries")
+      | GenerateLLMRequest("Chapter synopsis:\n{para_summaries}",
                            model="gpt-4o-mini@openai")
       | ConcurrentLLMCall(project["cache/ch_sum.jsonl"], broker) )
 ```
-
-*pseudocode, please see examples for implementation detail*
 
 ---
 
@@ -115,6 +122,8 @@ g = ( ReadMarkdownLines("novel/*.md", "chapter")                 # each entry = 
 | **Control flow**    | `If`, `While`, `Repeat`                                        | branch, loop, iterate             |
 | **LLM**             | `GenerateLLMRequest → ConcurrentLLMCall → ExtractResponseText` | prompt, call, harvest             |
 | **Utilities**       | `CleanupLLMData`, `PrintTotalCost`                             | tidy temporary fields, audit cost |
+| **Parallel helper** | `ListParallel` | one-liner spawn → subgraph → collect |
+| **Spawn / Collect (low-level)** | `SpawnFromList`, `CollectAllToList` | manual map-reduce with unique child ids |
 
 *(Shared‑idx ops `Replicate` / `Collect` are deprecated and vanish in v0.3.)*
 

@@ -132,9 +132,9 @@ def test_concurrent_llm_call_op():
     op = ConcurrentLLMCall(
         cache_path=op_cache,
         broker=broker,
-        input_field="llm_request",
-        output_field="llm_response",
-        status_field="status",
+        input_key="llm_request",
+        output_key="llm_response",
+        status_key="status",
     )
     # Create mock entries
     entries = {
@@ -168,7 +168,7 @@ def test_concurrent_llm_call_op():
         llm_response = LLMResponse.model_validate(entry.data["llm_response"])
         assert llm_response.message.content.startswith("Dummy response for"), f"Unexpected response content for {entry_idx}."
         assert llm_response.custom_id == entry.data["llm_request"]["custom_id"], f"Custom ID mismatch for {entry_idx}."
-    # Try Recovering from cache
+    # Try Recovering from cache (need the same input!)
     del op
     broker = ConcurrentLLMCallBroker(
         cache_path=broker_cache,
@@ -181,16 +181,18 @@ def test_concurrent_llm_call_op():
     op = ConcurrentLLMCall(
         cache_path=op_cache,
         broker=broker,
-        input_field="llm_request",
-        output_field="llm_response",
-        status_field="status",
+        input_key="llm_request",
+        output_key="llm_response",
+        status_key="status",
     )
     op.resume()
-    results = op.pump({},PumpOptions(
+    results = op.pump({0:entries},PumpOptions(
         dispatch_brokers=True,
         mock=True,
-        reload_inputs=True
+        reload_inputs=True,
+        max_barrier_level=None,
     )).outputs[0]
+    print(results)
     assert len(results) == len(entries), "Not all entries were processed after recovery."
     # Clean up
     del op

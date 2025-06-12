@@ -2,10 +2,12 @@ import hashlib
 from string import Formatter
 from typing import Dict, Iterable, Union, List, Any, Literal, Tuple
 from pydantic import BaseModel
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields
 from copy import deepcopy
+from typing import overload
 import json
+import itertools as itt
 
 def format_number(val):
     # use K M T Y
@@ -102,68 +104,114 @@ def _pivot_cascaded_dict(dict):
             new_dict.setdefault(key2, {})[key1] = value2
     return new_dict
 
+class CollectionsUtil:
+    @staticmethod
+    def pivot_cascaded_dict(dict_:Dict[Any,Dict]):
+        new_dict = {}
+        for key1, value1 in dict_.items():
+            for key2, value2 in value1.items():
+                new_dict.setdefault(key2, {})[key1] = value2
+        return new_dict
+    @staticmethod
+    def pivot_cascaded_list(list_:List[List]):
+        return [list(x) for x in zip(*list_)]
+    @staticmethod
+    def is_list_like(x):
+        return isinstance(x, Iterable) and not isinstance(x, (str,bytes,Mapping)) and not hasattr(x, '__fields__')
+    @staticmethod
+    def broadcast_lists(lists):
+        lists = list(lists)
+        max_len = max(len(lst) for lst in lists if CollectionsUtil.is_list_like(lst))
+        for i in range(len(lists)):
+            if not CollectionsUtil.is_list_like(lists[i]):
+                lists[i] = [lists[i]] * max_len
+        return lists
 
-class FieldsRouter:
-    """
-    Usage:
-    - `FieldsRouter({'k1':'v2','k2':'v2'},style="map")`
-    - `FieldsRouter(['in1','in2','in3'],['out1','out2'],style="inout")`
-    - `FieldsRouter('in1','in2','in3',style="tuple")`
-    - `FieldsRouter('k1','v1','k2','v2',style="map")`
-    - `FieldsRouter('in1','out1',style="inout")` (more than 2 args are ambiguous in "inout" style)
-    """
-    froms: List[str]
-    tos: List[str]
-    def __init__(self,*args,style:Literal["map","tuple","inout"],in_types=(str,), out_types=(str,)):
-        if style not in ["map", "tuple", "inout"]:
-            raise ValueError("prefers must be one of 'map', 'tuple', or 'inout'.")
+class KeysUtil:
+    @staticmethod
+    def read_dict(dict:Dict, keys:List[str])->Tuple[Any]:
+        return tuple(dict.get(key) for key in keys)
+    @staticmethod
+    def write_dict(dict:Dict, keys:List[str], *values:Any):
+        if len(values) != len(keys):
+            raise ValueError(f"Expected {len(keys)} values, got {len(values)}.")
+        for key, value in zip(keys, values):
+            dict[key] = value
+    @overload
+    @staticmethod
+    def make_keys(k1:str, *others, allow_empty=True)->List[str]: None
+    @overload
+    @staticmethod
+    def make_keys(ks:Sequence[str], allow_empty=True)->List[str]: None
+    @staticmethod
+    def make_keys(*args, allow_empty=True)->List[str]:
+        if len(args) == 0 and allow_empty:
+            return []
+        elif len(args) == 1 and CollectionsUtil.is_list_like(args[0]) and all(isinstance(k, str) for k in args[0]):
+            return list(args[0])
+        elif all(isinstance(k, str) for k in args):
+            return list(args)
+        else:
+            raise TypeError("Invalid arguments for make_keys.")
+    @overload
+    @staticmethod
+    def make_dict(k1:str, v1:Any, *others)->Dict[str, Any]: None
+    @overload
+    @staticmethod
+    def make_dict(kv:Mapping[str, Any])->Dict[str, Any]: None
+    @overload
+    @staticmethod
+    def make_dict(ks:Sequence[str], vs:Sequence[Any])->Dict[str, Any]: None
+    @staticmethod
+    def make_dict(*args)->Dict[str, Any]:
         if len(args) == 0:
-            self.froms, self.tos = [], []
-        elif isinstance(args[0], FieldsRouter):
-            if len(args) > 1: raise ValueError("Invalid FieldsRouter arguments: "+str(args))
-            self.froms, self.tos = args[0].froms, args[0].tos
-        elif isinstance(args[0], dict):
-            if len(args) > 1: raise ValueError("Invalid FieldsRouter arguments: "+str(args))
-            self.froms, self.tos = zip(*args[0].items())
-        elif isinstance(args[0], list):
-            if len(args) > 2: raise ValueError("Invalid FieldsRouter arguments: "+str(args))
-            elif len(args) == 2:
-                if isinstance(args[1], list):
-                    self.froms, self.tos = args[0], args[1]
-                else:
-                    self.froms, self.tos = args[0], [args[1]]
-            else:
-                self.froms, self.tos = args[0], []
-        else: # we are sure args[0] should be a key now
-            if len(args) == 1:
-                self.froms, self.tos = [args[0]], []
-            elif isinstance(args[1], list):
-                if len(args) > 2: raise ValueError("Invalid FieldsRouter arguments: "+str(args))
-                self.froms, self.tos = [args[0]], args[1]
-            else: # we are sure both args[0] and args[1] should be keys now
-                if style == "inout":
-                    if len(args) > 2: raise ValueError("Invalid FieldsRouter arguments: "+str(args))
-                    self.froms, self.tos = [args[0]], [args[1]]
-                elif style == "map":
-                    if len(args)%2 != 0: raise ValueError("Invalid FieldsRouter arguments: "+str(args))
-                    self.froms, self.tos = args[0::2], args[1::2]
-                elif style == "tuple":
-                    self.froms, self.tos = args, []
-        if in_types and not all(isinstance(k, in_types) for k in self.froms):
-            raise ValueError(f"FieldsRouter expects all froms to be of type {in_types}, got {self.froms}")
-        if out_types and not all(isinstance(k, out_types) for k in self.tos):
-            raise ValueError(f"FieldsRouter expects all tos to be of type {out_types}, got {self.tos}")
-        if style == "tuple" and len(self.tos)>0:
-            raise ValueError("FieldsRouter expects a tuple")
-        if style == "map" and len(self.froms) != len(self.tos):
-            raise ValueError("FieldsRouter expects a 1-to-1 mapping")
-    def read_tuple(self, entry:Dict)->Tuple:
-        return tuple(entry[field] for field in self.froms)
-    def write_tuple(self, entry:Dict, *values)->None:
-        if len(values) != len(self.tos):
-            raise ValueError(f"Expected {len(self.tos)} values, got {len(values)}.")
-        for field, value in zip(self.tos, values):
-            entry[field] = value
+            return {}
+        elif len(args) == 1 and isinstance(args[0], Mapping):
+            return dict(args[0])
+        elif len(args) == 2 and CollectionsUtil.is_list_like(args[0]) and CollectionsUtil.is_list_like(args[1]) and len(args[0]) == len(args[1]):
+            return {k: v for k, v in zip(args[0], args[1])}
+        elif all(isinstance(k, str) for k in args[::2]) and len(args) % 2 == 0:
+            return {args[i]: args[i + 1] for i in range(0, len(args), 2)}
+        else:
+            raise TypeError("Invalid arguments for make_dict.")
+    @staticmethod
+    @overload
+    def make_io_keys(ins:Sequence[str], outs:Sequence[str])->Tuple[List[str], List[str]]: None
+    @overload
+    def make_io_keys(iomap:Mapping[str, str])->Tuple[List[str], List[str]]: None
+    @overload
+    def make_io_keys(ins:Sequence[str], out:str)->Tuple[List[str], List[str]]: None
+    @overload
+    def make_io_keys(ins:str, outs:Sequence[str])->Tuple[List[str], List[str]]: None
+    @overload
+    def make_io_keys(ins:str, outs:str)->Tuple[List[str], List[str]]: None
+    @staticmethod
+    def make_io_keys(*args):
+        if len(args) == 0:
+            return [], []
+        elif len(args) == 1 and isinstance(args[0], Mapping) and all(isinstance(k, str) for k in args[0]) and all(isinstance(v, str) for v in args[0].values()):
+            return list(args[0].keys()), list(args[0].values())
+        elif len(args) == 2 and CollectionsUtil.is_list_like(args[0]) and CollectionsUtil.is_list_like(args[1]) and all(isinstance(k, str) for k in args[0]) and all(isinstance(k, str) for k in args[1]):
+            return list(args[0]), list(args[1])
+        elif len(args) == 2 and isinstance(args[0], str) and CollectionsUtil.is_list_like(args[1]) and all(isinstance(k, str) for k in args[1]):
+            return [args[0]], list(args[1])
+        elif len(args) == 2 and CollectionsUtil.is_list_like(args[0]) and all(isinstance(k, str) for k in args[0]) and isinstance(args[1], str):
+            return list(args[0]), [args[1]]
+        elif len(args) == 2 and isinstance(args[0], str) and isinstance(args[1], str):
+            return [args[0]], [args[1]]
+        else:
+            raise TypeError("Invalid arguments for make_io_keys.")
+    @staticmethod
+    def make_keys_map(*args,non_overlapping=False)->Tuple[List[str],List[str]]:
+        from_keys, to_keys = KeysUtil.make_io_keys(*args)
+        if len(from_keys) != len(to_keys):
+            raise ValueError("Invalid arguments for make_keys_map.")
+        if non_overlapping:
+            if set(from_keys) & set(to_keys):
+                raise ValueError("make_keys_map requires unique froms and tos to avoid ambiguity.")
+        return from_keys, to_keys
+
+
 
 def _number_to_label(n: int) -> str:
     label = ""
@@ -187,5 +235,7 @@ __all__ = [
     "hash_texts",
     "hash_json",
     "get_format_keys",
-    "FieldsRouter",
+    "IOKeysInput",
+    "KeysUtil",
+    "CollectionsUtil",
 ]

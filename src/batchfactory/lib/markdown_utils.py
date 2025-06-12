@@ -19,6 +19,9 @@ def iter_markdown_lines(markdown_path):
         elif len(line)>0:
             yield current_path[:],line,""
 
+def lines(text):
+    return [t for t in text.split('\n') if t.strip()]
+
 def iter_markdown_entries(markdown_path):
     '''yields (directory,keyword,context) for each subtitle leaf'''
     current_path=[]
@@ -27,13 +30,12 @@ def iter_markdown_entries(markdown_path):
         current_path=(current_path+['']*100)[:level]
         current_path[level-1]=title
     text=open(markdown_path, 'r', encoding='utf-8').read()
-    lines=text.split('\n')
     current_context=None
     def yieldQ():
         # only yield if there is a context and path is not empty
         # so the entry at root level is not yielded. e.g. prologue and information in a novel txt
         return current_context and len(current_context.replace('\n','').strip())>0 and len(current_path)>0
-    for counter,line in enumerate(lines):
+    for counter,line in enumerate(lines(text)):
         line_stripped=line.strip()
         if re.match(r'^#+ ',line_stripped):
             if yieldQ():
@@ -50,7 +52,7 @@ def iter_markdown_entries(markdown_path):
     if yieldQ():
         yield current_path[:-1],current_path[-1],current_context
 
-def write_markdown(entries,markdown_path,mode='w'):
+def write_markdown(entries:tuple[list,str,str],markdown_path,mode='w',sort=False):
     '''entries:list of (directory,keyword,content) tuples
     directory is a list of categories, not including keyword'''
     old_directory=[]
@@ -59,6 +61,7 @@ def write_markdown(entries,markdown_path,mode='w'):
         for i,new_category in enumerate(new_directory):
             if i>=len(old_directory) or old_directory[i]!=new_category:
                 yield i,new_category
+    if sort: entries=sorted({(*x[0],x[1]):x for x in entries}.values())
     with open(markdown_path,mode,encoding='utf-8') as f:
         for directory,keyword,content in entries:
             for level,category in directory_change_iter(old_directory,directory):

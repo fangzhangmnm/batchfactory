@@ -5,12 +5,12 @@ def test_example1_basic_pipeline():
     project = bf.CacheFolder("example1_basic_pipeline", 1, 0, 0)
     broker = bf.brokers.ConcurrentLLMCallBroker(project["cache/llm_broker.jsonl"])
 
-    # project.delete_all(warning=False)
+    project.delete_all()
 
     # Build a small graph that rewrites passages into short English poems
 
     g = (
-        ReadMarkdownLines("example_data.txt", "keyword", directory_str_field="directory")
+        ReadMarkdownLines("example_data.txt")
         | Shuffle(42)
         | TakeFirstN(3)
         | GenerateLLMRequest(
@@ -19,8 +19,9 @@ def test_example1_basic_pipeline():
         )
         | ConcurrentLLMCall(project["cache/llm_call1.jsonl"], broker)
         | ExtractResponseText()
-        | WriteJsonl(project["out/poems.jsonl"],output_fields=["keyword","text","directory"])
-        | Print()
+        | PrintField()
+        | WriteJsonl(project["out/poems.jsonl"],output_keys=["keyword","text","directory"])
+        | WriteMarkdownEntries(project["out/poems.md"])
     )
 
     g = g.compile()
