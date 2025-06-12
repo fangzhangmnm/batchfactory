@@ -205,8 +205,10 @@ class SpawnOp(BaseOp, ABC):
 
 class CollectAllOp(BaseOp, ABC):
     "Update master entry from spawn entries collected from in_port 1. Wait if spawn entries are not ready."
-    def __init__(self):
-        super().__init__(n_in_ports=2, n_out_ports=1, barrier_level=0)
+    def __init__(self, consume_spawns:bool):
+        n_out_ports = 1 if consume_spawns else 2
+        super().__init__(n_in_ports=2, n_out_ports=n_out_ports, barrier_level=0)
+        self.consume_spawns = consume_spawns
 
     @abstractmethod
     def get_master_idx(self, spawn_entry: Entry)->str|None:
@@ -222,6 +224,8 @@ class CollectAllOp(BaseOp, ABC):
         pass
     def pump(self, inputs, options: PumpOptions) -> PumpOutput:
         outputs, consumed, did_emit = {0:{}}, {0:set(), 1:set()}, False
+        if not self.consume_spawns:
+            outputs[1] = {}
         master_batch = inputs.get(0, {})
         candidate_batch = inputs.get(1, {})
         spawn_batches = {}
@@ -238,6 +242,9 @@ class CollectAllOp(BaseOp, ABC):
             outputs[0][master_idx] = master_entry
             consumed[0].add(master_idx)
             consumed[1].update(spawn_entries.keys())
+            if not self.consume_spawns:
+                for spawn_entry in spawn_entries.values():
+                    outputs[1][spawn_entry.idx] = spawn_entry
             did_emit = True
         return PumpOutput(outputs=outputs, consumed=consumed, did_emit=did_emit)
 

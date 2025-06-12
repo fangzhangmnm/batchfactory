@@ -131,7 +131,9 @@ class CheckpointOp(BaseOp, ABC):
         return Entry(**record)
 
 class CheckPoint(CheckpointOp):
-    "A no-op checkpoint that saves inputs to the cache, and resumes from the cache."
+    """
+    A no-op checkpoint that saves inputs to the cache, and resumes from the cache.
+    """
     def __init__(self, cache_path: str, keep_all_rev: bool = True, barrier_level: int = 1):
         super().__init__(cache_path, keep_all_rev, barrier_level)
     def prepare_input(self, entry: Entry) -> None:

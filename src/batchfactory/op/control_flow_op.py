@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from ..core.op_graph_segment import OpGraphSegment
 
 class Replicate(SplitOp):
-    "Replicate an entry to all out_ports, with optionally `replica_idx_key` field set to the out_port index."
+    "Replicate an entry to all output ports."
     def __init__(self, n_out_ports:int = 2, replica_idx_key:str|None="replica_idx"):
         super().__init__(n_out_ports=n_out_ports)
         self.replica_idx_key = replica_idx_key
@@ -25,7 +25,7 @@ class Replicate(SplitOp):
         return output_entries
     
 class Collect(MergeOp):
-    "Collect data from in_port 1, to in_port 0"
+    "Collect data from port 1, merge to 0."
     def __init__(self, *keys):
         """
         - collects data from in_port 1
@@ -41,7 +41,7 @@ class Collect(MergeOp):
 
 
 class BeginIfOp(SplitOp,ABC):
-    "Switch to port 1 if criteria is met"
+    "Switch to port 1 if criteria is met."
     def __init__(self):
         super().__init__(n_out_ports=2)
     def split(self, entry: Entry) -> Dict[int, Entry]:
@@ -56,6 +56,7 @@ class BeginIfOp(SplitOp,ABC):
 
 class BeginIf(BeginIfOp):
     """
+    Switch to port 1 if criteria is met. See `If` function for usage.
     - `BeginIf(lambda data: data['condition'])`
     - `BeginIf(lambda x, y: x > y, 'x', 'y')`
     """
@@ -70,7 +71,7 @@ class BeginIf(BeginIfOp):
             return self._criteria(entry.data)
     
 class EndIf(MergeOp):
-    "Take entry from either branch of if"
+    "Join entries from either port 0 or port 1. See `If` function for usage."
     def __init__(self):
         super().__init__(n_in_ports=2, wait_all=False)
     def merge(self, entries: Dict[int, Entry]) -> Entry:
@@ -147,7 +148,7 @@ class LoopOp(RouterOp,ABC):
         pass
 
 class WhileNode(LoopOp):
-    "Please see `While` function for usage."
+    "Executes the loop body while the criteria is met. See `While` function for usage."
     def __init__(self, criteria, *criteria_keys):
         super().__init__()
         self._criteria = criteria
@@ -170,7 +171,7 @@ def While(criteria:Callable, body_chain:'OpGraphSegment|BaseOp') -> 'OpGraphSegm
     return main_chain
 
 class RepeatNode(LoopOp):
-    "See `Repeat` function for usage."
+    "Repeat the loop body for a fixed number of rounds. See `Repeat` function for usage."
     def __init__(self, max_rounds=None, rounds_key="rounds", max_rounds_key=None, initial_value:int|None=0):
         super().__init__()
         self.rounds_key = rounds_key
@@ -239,7 +240,7 @@ def _explode_entry_by_lists(entry: Entry,
 
 
 class ExplodeList(BatchOp):
-    "Explode a list to multiple entries, each with a single item from the list."
+    "Explode an entry to multiple entries based on a list (or lists)."
     def __init__(self, in_lists_keys="list", out_lists_keys="item",
                  master_idx_key="master_idx", list_idx_key="list_idx"):
         super().__init__(consume_all_batch=True, barrier_level=0)
@@ -256,7 +257,7 @@ class ExplodeList(BatchOp):
 
 
 class SpawnFromList(SpawnOp):
-    "Explode a list to multiple entries to port 1, each with a single item from the list."
+    "Spawn multiple spawn entries to port 1 based on a list (or lists)."
     def __init__(self,
                  in_lists_keys="list",
                  out_items_keys="item",
@@ -279,15 +280,16 @@ class SpawnFromList(SpawnOp):
         return output_entries
             
 class CollectAllToList(CollectAllOp):
-    "Concentrate items from multiple entries on port 1 into a list."
+    "Collect items from spawn entries on port 1 and merge them into a list (or lists if multiple items provided)."
     def __init__(self, 
                 in_items_keys="item",
                 out_lists_keys="list",
                 master_idx_key="master_idx",
                 list_idx_key="list_idx",
                 spawn_idx_list_key="spawn_idx_list",
+                consume_spawns=True
     ):
-        super().__init__()
+        super().__init__(consume_spawns=consume_spawns)
         self.in_items_keys, self.out_lists_keys = KeysUtil.make_keys_map(in_items_keys, out_lists_keys)
         self.master_idx_key = master_idx_key
         self.list_idx_key = list_idx_key
@@ -315,6 +317,7 @@ def ListParallel(spawn_body:'OpGraphSegment|BaseOp',
         spawn_idx_list_key="spawn_idx_list",
         master_body:'OpGraphSegment|BaseOp|None'=None,
     ):
+    "Spawn entries from a list (or lists), process them in parallel, and collect them back to a list (or lists)."
     if out_items_keys is None: 
         out_items_keys = in_lists_keys
     if in_items_keys is None:

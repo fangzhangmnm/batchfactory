@@ -160,48 +160,7 @@ g = ( ReadMarkdownLines("novel/*.md", "chapter")         # each entry = a chapte
 
 ### Available Ops
 
-| Operation | Description |
-|-----------|-------------|
-| `Apply` | Apply a function to modify the entry data, or maps between fields. |
-| `BeginIf` | Switch to port 1 if criteria is met. See `If` function for usage. |
-| `ChatHistoryToText` | Format the chat history into a single text. |
-| `CheckPoint` | A no-op checkpoint that saves inputs to the cache, and resumes from the cache. |
-| `CleanupLLMData` | Clean up internal fields used for LLM processing, such as llm_request, llm_response, and status. |
-| `Collect` | Collect data from port 1, merge to 0. |
-| `CollectAllToList` | Collect items from spawn entries on port 1 and merge them into a list (or lists if multiple items provided). |
-| `ConcurrentLLMCall` | Dispatch concurrent LLM API calls — may induce API billing from external providers. |
-| `EndIf` | Join entries from either port 0 or port 1. See `If` function for usage. |
-| `ExplodeList` | Explode an entry to multiple entries based on a list (or lists). |
-| `ExtractResponseMeta` | Extract metadata from the LLM response like model name and accumulated cost. |
-| `ExtractResponseText` | Extract the text content from the LLM response and store it to entry data. |
-| `Filter` | Filter entries based on a custom criteria function. |
-| `FilterFailedEntries` | Drop entries that have a status "failed". |
-| `FilterMissingFields` | Drop entries that do not have specific fields. |
-| `FromList` | Create entries from a list of dictionaries or objects, each representing an entry. |
-| `GenerateLLMRequest` | Generate a LLM query from a given prompt, formatting it with the entry data. |
-| `PrintEntry` | Print the first n entries information. |
-| `PrintField` | Print the specific field(s) from the first n entries. |
-| `PrintTotalCost` | Print the total accumulated API cost for the output batch. |
-| `ReadJsonl` | Read JSON Lines files. |
-| `ReadMarkdownEntries` | Read Markdown files and extract entries with markdown heading hierarchy as directory and keyword. |
-| `ReadMarkdownLines` | Read Markdown files and extract non-empty lines as keyword with markdown heading hierarchy as directory. |
-| `ReadTxtFolder` | Collect all txt files in a folder. |
-| `RemoveField` | Remove fields from the entry data. |
-| `RenameField` | Rename fields in the entry data. |
-| `RepeatNode` | Repeat the loop body for a fixed number of rounds. See `Repeat` function for usage. |
-| `Replicate` | Replicate an entry to all output ports. |
-| `SetField` | Set fields in the entry data to specific values. |
-| `Shuffle` | Shuffle the entries in a batch randomly. |
-| `Sort` | Sort the entries in a batch |
-| `SpawnFromList` | Spawn multiple spawn entries to port 1 based on a list (or lists). |
-| `SplitCot` | Remove the chain of thought (CoT) from the LLM response and store it separately. Must be called before extracting the response text or dialogue. |
-| `TakeFirstN` | Takes the first N entries from the batch. discards the rest. |
-| `ToList` | Output a list of specific field(s) from entries. |
-| `TransformCharacterDialogueForLLM` | Map custom character roles to valid LLM roles (user/assistant/system). Must be called after GenerateLLMRequest. |
-| `UpdateChatHistory` | Appending the LLM response to the chat history. |
-| `WhileNode` | Executes the loop body while the criteria is met. See `While` function for usage. |
-| `WriteJsonl` | Write entries to a JSON Lines file. |
-| `WriteMarkdownEntries` | Write entries to a Markdown file, with heading hierarchy defined by directory and keyword. |
+<!-- ALL_OPS_PLACEHOLDER -->
 
 ---
 

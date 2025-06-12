@@ -13,10 +13,7 @@ from dataclasses import asdict
 
 
 class GenerateLLMRequest(ApplyOp):
-    """
-    Generate a LLM query from a given prompt and save to entry.data["llm_request"]
-    if the prompt is a string template, it will format according to entry.data 
-    """
+    "Generate a LLM query from a given prompt, formatting it with the entry data."
     def __init__(self,user_prompt,model,
                  max_completion_tokens=4096,
                  role="user",
@@ -71,6 +68,7 @@ class GenerateLLMRequest(ApplyOp):
         return hash_texts(*texts)
     
 class ExtractResponseMeta(ApplyOp):
+    "Extract metadata from the LLM response like model name and accumulated cost."
     def __init__(self, 
                  input_response_key="llm_response", 
                  input_request_key="llm_request",
@@ -94,6 +92,7 @@ class ExtractResponseMeta(ApplyOp):
             entry.data[self.accumulated_cost_key] = cost + entry.data.get(self.accumulated_cost_key, 0.0)
 
 class ExtractResponseText(ApplyOp):
+    "Extract the text content from the LLM response and store it to entry data."
     def __init__(self, 
                  input_key="llm_response", 
                  output_key="text",
@@ -107,6 +106,7 @@ class ExtractResponseText(ApplyOp):
         entry.data[self.output_key] = llm_response.message.content
     
 class UpdateChatHistory(ApplyOp):
+    "Appending the LLM response to the chat history."
     def __init__(self,
                     input_key="llm_response",
                     output_key="chat_history",
@@ -129,6 +129,7 @@ class UpdateChatHistory(ApplyOp):
         entry.data[self.output_key] = chat_history
     
 class ChatHistoryToText(ApplyOp):
+    "Format the chat history into a single text."
     def __init__(self, 
                  input_key="chat_history",
                  output_key="text",
@@ -151,6 +152,7 @@ class ChatHistoryToText(ApplyOp):
 
         
 class TransformCharacterDialogueForLLM(ApplyOp):
+    "Map custom character roles to valid LLM roles (user/assistant/system). Must be called after GenerateLLMRequest."
     def __init__(self, 
                  character_name:str|None=None, # e.g. "Timmy"
                  character_key:str|None=None, # e.g. "character_name"
@@ -187,6 +189,7 @@ class TransformCharacterDialogueForLLM(ApplyOp):
 
     
 class PrintTotalCost(OutputOp):
+    "Print the total accumulated API cost for the output batch."
     def __init__(self, accumulated_cost_key="api_cost"):
         super().__init__()
         self.accumulated_cost_key = accumulated_cost_key
@@ -199,6 +202,7 @@ class PrintTotalCost(OutputOp):
     
 
 class ConcurrentLLMCall(BrokerOp):
+    "Dispatch concurrent LLM API calls — may induce API billing from external providers."
     def __init__(self,
                     cache_path: str,
                     broker: ConcurrentLLMCallBroker,
@@ -238,10 +242,12 @@ class ConcurrentLLMCall(BrokerOp):
 
 
 class CleanupLLMData(RemoveField):
+    "Clean up internal fields used for LLM processing, such as llm_request, llm_response, and status."
     def __init__(self,fields=["llm_request","llm_response","status"]):
         super().__init__(*fields)
 
 class SplitCot(ApplyOp):
+    "Remove the chain of thought (CoT) from the LLM response and store it separately. Must be called before extracting the response text or dialogue."
     def __init__(self, input_key="llm_response", cot_key="cot", label = "</think>", start_label = "<think>"):
         super().__init__()
         self.input_key = input_key

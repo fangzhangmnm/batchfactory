@@ -7,6 +7,7 @@ import random
 
 class Filter(FilterOp):
     """
+    Filter entries based on a custom criteria function.
     - `Filter(lambda data:data['keep_if_True'])`
     - `Filter(lambda x:x>5, 'score')`
     """
@@ -21,15 +22,15 @@ class Filter(FilterOp):
             return self._criteria(entry.data)
         
 class FilterFailedEntries(FilterOp):
-    "Drops entries with status failed"
+    """Drop entries that have a status "failed"."""
     def __init__(self, status_key="status",consume_rejected=False):
         super().__init__(consume_rejected=consume_rejected)
         self.status_key = status_key
     def criteria(self, entry):
         return BrokerJobStatus(entry.data[self.status_key]) != BrokerJobStatus.FAILED
-    
-class FilterMissingField(FilterOp):
-    "Drop entries that do not have all the keys specified in `keys`"
+
+class FilterMissingFields(FilterOp):
+    "Drop entries that do not have specific fields."
     def __init__(self, *keys, consume_rejected=False, allow_None=True):
         super().__init__(consume_rejected=consume_rejected)
         self.keys = KeysUtil.make_keys(*keys,allow_empty=False)
@@ -42,6 +43,7 @@ class FilterMissingField(FilterOp):
     
 class Apply(ApplyOp):
     """
+    Apply a function to modify the entry data, or maps between fields.
     - `Apply(lambda data: operator.setitem(data, 'sum', data['a'] + data['b']))`
     - `Apply(operator.add, ['a', 'b'], ['sum'])`
     """
@@ -61,7 +63,10 @@ class Apply(ApplyOp):
             self.func(entry.data)
 
 class SetField(ApplyOp):
-    "`SetField('k1', v1, 'k2', v2, ...)`, see `MapInput` for details"
+    """
+    Set fields in the entry data to specific values.
+    - `SetField('k1', v1, 'k2', v2, ...)`, see `MapInput` for details
+    """
     def __init__(self, *data):
         super().__init__()
         self.data = KeysUtil.make_dict(*data)
@@ -70,7 +75,11 @@ class SetField(ApplyOp):
             entry.data[field] = value
 
 class RemoveField(ApplyOp):
-    "`RemoveField('k1', 'k2', ...)`"
+    """
+    Remove fields from the entry data.
+    - `RemoveField('k1', 'k2', ...)`, see `KeysInput` for details
+    """
+
     def __init__(self, *keys):
         super().__init__()
         self.keys = KeysUtil.make_keys(*keys, allow_empty=False)
@@ -79,7 +88,10 @@ class RemoveField(ApplyOp):
             entry.data.pop(field, None)
             
 class RenameField(ApplyOp):
-    "`RenameField('from1', 'to1')`, see `KeysMapInput` for details"
+    """
+    Rename fields in the entry data.
+    - `RenameField('from1', 'to1', 'from2', 'to2', ...)`, see `KeysMapInput` for details
+    """
     def __init__(self, *keys_map, copy=False):
         super().__init__()
         self.from_keys, self.to_keys = KeysUtil.make_keys_map(*keys_map, non_overlapping=True)
@@ -92,7 +104,7 @@ class RenameField(ApplyOp):
                 entry.data[k2] = entry.data.pop(k1, None)
 
 class Shuffle(BatchOp):
-    """Shuffles the entries in a fixed random order"""
+    """Shuffle the entries in a batch randomly."""
     def __init__(self, seed, barrier_level = 1):
         super().__init__(consume_all_batch=True, barrier_level=barrier_level)
         self.seed = seed
@@ -143,7 +155,7 @@ class Sort(BatchOp):
 __all__ = [
     "Filter",
     "FilterFailedEntries",
-    "FilterMissingField",
+    "FilterMissingFields",
     "Apply",
     "SetField",
     "RemoveField",
