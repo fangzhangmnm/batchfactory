@@ -57,9 +57,9 @@ Run it twice – everything after the first run is served from the on‑disk led
 ```python
 g |= Apply(lambda x: split_text(label_line_numbers(x)), "text", "text_segments")
 spawn_chain = AskLLM(LABEL_SEG_PROMPT, "labels", 1)
-spawn_chain |= Apply(text_to_integer_list, "labels", "labels")
+spawn_chain |= Apply(text_to_integer_list, "labels")
 g | ListParallel(spawn_chain, "text_segments", "text", "labels", "labels")
-g |= Apply(flatten_list, "labels", "labels")
+g |= Apply(flatten_list, "labels")
 g |= Apply(split_text_by_line_labels, ["text", "labels"], "text_segments")
 g |= ExplodeList(["directory", "text_segments"], ["directory", "text"])
 ```

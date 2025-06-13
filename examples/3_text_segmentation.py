@@ -72,7 +72,7 @@ def AskLLM(prompt, output_key, identifier):
     g = GenerateLLMRequest(prompt, model=model)
     g |= ConcurrentLLMCall(project[f"cache/llm_call_{identifier}.jsonl"], broker, failure_behavior="retry")
     g |= ExtractResponseText(output_key=output_key)
-    g |= Apply(remove_cot, "text", "text")
+    g |= Apply(remove_cot, "text")
     g |= CleanupLLMData()
     return g
 
@@ -82,15 +82,15 @@ g |= Apply(lambda x: x.split('.')[0], "filename", "directory")
 # START_EXAMPLE_EXPORT
 g |= Apply(lambda x: split_text(label_line_numbers(x)), "text", "text_segments")
 spawn_chain = AskLLM(LABEL_SEG_PROMPT, "labels", 1)
-spawn_chain |= Apply(text_to_integer_list, "labels", "labels")
+spawn_chain |= Apply(text_to_integer_list, "labels")
 g | ListParallel(spawn_chain, "text_segments", "text", "labels", "labels")
-g |= Apply(flatten_list, "labels", "labels")
+g |= Apply(flatten_list, "labels")
 g |= Apply(split_text_by_line_labels, ["text", "labels"], "text_segments")
 g |= ExplodeList(["directory", "text_segments"], ["directory", "text"])
 # END_EXAMPLE_EXPORT
 
 g |= RenameField("list_idx", "keyword")
-g |= Apply(lambda x: f"Chapter {x+1}", "keyword", "keyword")
+g |= Apply(lambda x: f"Chapter {x+1}", "keyword")
 g |= WriteMarkdownEntries(project["out/chapterized.md"], "text")
 
 g.execute(dispatch_brokers=True)

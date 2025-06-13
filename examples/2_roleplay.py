@@ -15,7 +15,7 @@ def Character(character_key, user_prompt):
         seg |= TransformCharacterDialogueForLLM(character_key=character_key)
         seg |= ConcurrentLLMCall(project[f"cache/llm_call_{identifier}.jsonl"], broker, failure_behavior="retry")
         seg |= ExtractResponseText()
-        seg |= Apply(remove_speaker_tag, "text", "text")
+        seg |= Apply(remove_speaker_tag, "text")
         seg |= UpdateChatHistory(character_key=character_key)
         seg |= ExtractResponseMeta() | CleanupLLMData()
         return seg

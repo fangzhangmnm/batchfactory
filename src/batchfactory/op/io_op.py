@@ -243,9 +243,12 @@ class WriteMarkdownEntries(OutputOp):
         self.sort = sort
     def _args_repr(self): return ReprUtil.repr_str(self.path)
     def output_batch(self, entries: Dict[str, Entry]) -> None:
-        tuples = []
+        tuple_deduplicate ={}
         if os.path.exists(self.path):
-            tuples.extend(iter_markdown_entries(self.path))
+            # tuples.extend(iter_markdown_entries(self.path))
+            input_tuples = iter_markdown_entries(self.path)
+            for directory, keyword, context in input_tuples:
+                tuple_deduplicate[(tuple(directory), keyword)] = (directory, keyword, context)
         for entry in entries.values():
             directory = entry.data.get("directory", [])
             if isinstance(directory, str):
@@ -253,7 +256,9 @@ class WriteMarkdownEntries(OutputOp):
             keyword = entry.data.get(self.keyword_key, "")
             context = entry.data.get(self.context_key, "")
             context = remove_markdown_headings(context)
-            tuples.append((directory, keyword, context))
+            # tuples.append((directory, keyword, context))
+            tuple_deduplicate[(tuple(directory), keyword)] = (directory, keyword, context)
+        tuples = [v for v in tuple_deduplicate.values()]
         write_markdown(tuples, self.path, sort=self.sort)
         print(f"Output {len(entries)} entries to {os.path.abspath(self.path)}")
 

@@ -186,6 +186,10 @@ class KeysUtil:
     def make_io_keys(ins:str, outs:Sequence[str])->Tuple[List[str], List[str]]: None
     @overload
     def make_io_keys(ins:str, outs:str)->Tuple[List[str], List[str]]: None
+    @overload
+    def make_io_keys(inouts:str) -> Tuple[List[str], List[str]]: None
+    @overload
+    def make_io_keys(inouts:Sequence[str]) -> Tuple[List[str], List[str]]: None
     @staticmethod
     def make_io_keys(*args):
         if len(args) == 0:
@@ -200,6 +204,10 @@ class KeysUtil:
             return list(args[0]), [args[1]]
         elif len(args) == 2 and isinstance(args[0], str) and isinstance(args[1], str):
             return [args[0]], [args[1]]
+        elif len(args) == 1 and isinstance(args[0], str):
+            return [args[0]], [args[0]]
+        elif len(args) == 1 and CollectionsUtil.is_list_like(args[0]) and all(isinstance(k, str) for k in args[0]):
+            return list(args[0]), list(args[0])
         else:
             raise TypeError("Invalid arguments for make_io_keys.")
     @staticmethod
