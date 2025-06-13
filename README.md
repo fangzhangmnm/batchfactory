@@ -55,12 +55,12 @@ Run it twice – everything after the first run is served from the on‑disk led
 ### Spawn snippet (Text Segmentation)
 
 ```python
-g |= Apply(lambda x: split_text(label_line_numbers(x)), "text", "text_segments")
+g |= ApplyField(lambda x: split_text(label_line_numbers(x)), "text", "text_segments")
 spawn_chain = AskLLM(LABEL_SEG_PROMPT, "labels", 1)
-spawn_chain |= Apply(text_to_integer_list, "labels")
+spawn_chain |= ApplyField(text_to_integer_list, "labels")
 g | ListParallel(spawn_chain, "text_segments", "text", "labels", "labels")
-g |= Apply(flatten_list, "labels")
-g |= Apply(split_text_by_line_labels, ["text", "labels"], "text_segments")
+g |= ApplyField(flatten_list, "labels")
+g |= ApplyField(split_text_by_line_labels, ["text", "labels"], "text_segments")
 g |= ExplodeList(["directory", "text_segments"], ["directory", "text"])
 ```
 
@@ -129,7 +129,8 @@ g |= WriteMarkdownEntries(project["out/roleplay.md"])
 
 | Operation | Description |
 |-----------|-------------|
-| `Apply` | Apply a function to modify the entry data, or maps between fields. |
+| `Apply` | Apply a function to modify the entry data. |
+| `ApplyField` | Apply a function to specific field(s) in the entry data. |
 | `BeginIf` | Switch to port 1 if criteria is met. See `If` function for usage. |
 | `ChatHistoryToText` | Format the chat history into a single text. |
 | `CheckPoint` | A no-op checkpoint that saves inputs to the cache, and resumes from the cache. |
@@ -158,11 +159,11 @@ g |= WriteMarkdownEntries(project["out/roleplay.md"])
 | `RemoveField` | Remove fields from the entry data. |
 | `RenameField` | Rename fields in the entry data. |
 | `Repeat` | Repeat the loop body for a fixed number of rounds. |
-| `RepeatNode` | Repeat the loop body for a fixed number of rounds. See `Repeat` function for usage. |
 
 
 | Operation | Description |
 |-----------|-------------|
+| `RepeatNode` | Repeat the loop body for a fixed number of rounds. See `Repeat` function for usage. |
 | `Replicate` | Replicate an entry to all output ports. |
 | `SetField` | Set fields in the entry data to specific values. |
 | `Shuffle` | Shuffle the entries in a batch randomly. |
@@ -177,9 +178,9 @@ g |= WriteMarkdownEntries(project["out/roleplay.md"])
 | `WhileNode` | Executes the loop body while the criteria is met. See `While` function for usage. |
 | `WriteJsonl` | Write entries to a JSON Lines file. |
 | `WriteMarkdownEntries` | Write entries to a Markdown file, with heading hierarchy defined by directory and keyword. |
-| `remove_cot` | Remove the chain of thought (CoT) from the LLM response. Use Apply to wrap it. |
-| `remove_speaker_tag` | Remove speaker tags. Use Apply to wrap it. |
-| `split_cot` | Split the LLM response into text and chain of thought (CoT). Use Apply to wrap it. |
+| `remove_cot` | Remove the chain of thought (CoT) from the LLM response. Use ApplyField to wrap it. |
+| `remove_speaker_tag` | Remove speaker tags. Use ApplyField to wrap it. |
+| `split_cot` | Split the LLM response into text and chain of thought (CoT). Use ApplyField to wrap it. |
 
 ---
 

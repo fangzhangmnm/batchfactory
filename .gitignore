@@ -7,3 +7,4 @@ journal.md
 dist
 README_NEW.md
 .pytest_cache
+*.code-workspace

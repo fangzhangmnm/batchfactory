@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields
 from copy import deepcopy
-from typing import overload
+from typing import overload, get_args, get_origin, Tuple
 import json
 import itertools as itt
 import inspect, ast, textwrap
@@ -175,23 +175,29 @@ class KeysUtil:
             return {args[i]: args[i + 1] for i in range(0, len(args), 2)}
         else:
             raise TypeError("Invalid arguments for make_dict.")
-    @staticmethod
     @overload
+    @staticmethod
     def make_io_keys(ins:Sequence[str], outs:Sequence[str])->Tuple[List[str], List[str]]: None
     @overload
+    @staticmethod
     def make_io_keys(iomap:Mapping[str, str])->Tuple[List[str], List[str]]: None
     @overload
+    @staticmethod
     def make_io_keys(ins:Sequence[str], out:str)->Tuple[List[str], List[str]]: None
     @overload
+    @staticmethod
     def make_io_keys(ins:str, outs:Sequence[str])->Tuple[List[str], List[str]]: None
     @overload
+    @staticmethod
     def make_io_keys(ins:str, outs:str)->Tuple[List[str], List[str]]: None
     @overload
+    @staticmethod
     def make_io_keys(inouts:str) -> Tuple[List[str], List[str]]: None
     @overload
+    @staticmethod
     def make_io_keys(inouts:Sequence[str]) -> Tuple[List[str], List[str]]: None
     @staticmethod
-    def make_io_keys(*args):
+    def make_io_keys(*args,_suppress_error=False):
         if len(args) == 0:
             return [], []
         elif len(args) == 1 and isinstance(args[0], Mapping) and all(isinstance(k, str) for k in args[0]) and all(isinstance(v, str) for v in args[0].values()):
@@ -209,7 +215,10 @@ class KeysUtil:
         elif len(args) == 1 and CollectionsUtil.is_list_like(args[0]) and all(isinstance(k, str) for k in args[0]):
             return list(args[0]), list(args[0])
         else:
-            raise TypeError("Invalid arguments for make_io_keys.")
+            if not _suppress_error:
+                return None
+            else:
+                raise TypeError("Invalid arguments for make_io_keys.")
     @staticmethod
     def make_keys_map(*args,non_overlapping=False)->Tuple[List[str],List[str]]:
         from_keys, to_keys = KeysUtil.make_io_keys(*args)
@@ -219,8 +228,36 @@ class KeysUtil:
             if set(from_keys) & set(to_keys):
                 raise ValueError("make_keys_map requires unique froms and tos to avoid ambiguity.")
         return from_keys, to_keys
-
-
+    
+    @staticmethod
+    def extract_out_list_from_func_return(tuple_or_list_or_any, out_keys:List[str]) -> Tuple[Any]:
+        if len(out_keys) == 1: # should expect an object despite the return is a list (but raise error if returns a tuple with length more than 1
+            if isinstance(tuple_or_list_or_any, tuple) and len(tuple_or_list_or_any) == 1:
+                return (tuple_or_list_or_any[0],)
+            elif isinstance(tuple_or_list_or_any, tuple) and len(tuple_or_list_or_any) > 1:
+                raise ValueError(f"Expected a single return value, but got {len(tuple_or_list_or_any)} values.")
+            elif tuple_or_list_or_any is None:
+                raise ValueError("Expected a single return value, but got None.")
+            else:
+                return (tuple_or_list_or_any,)
+        elif len(out_keys) == 0:
+            if isinstance(tuple_or_list_or_any, tuple) and len(tuple_or_list_or_any) == 0: # do not auto unpack list
+                return ()
+            elif isinstance(tuple_or_list_or_any, tuple) and len(tuple_or_list_or_any) > 0:
+                raise ValueError(f"Expected no return values, but got {len(tuple_or_list_or_any)} values.")
+            elif tuple_or_list_or_any is None:
+                return ()
+            else:
+                raise ValueError(f"Expected no return values, but got a {type(tuple_or_list_or_any).__name__}.")
+        else:
+            if isinstance(tuple_or_list_or_any, tuple) and len(tuple_or_list_or_any) == len(out_keys):
+                return tuple(tuple_or_list_or_any)
+            elif isinstance(tuple_or_list_or_any, tuple) and len(tuple_or_list_or_any) != len(out_keys):
+                raise ValueError(f"Expected {len(out_keys)} return values, but got {len(tuple_or_list_or_any)} values.")
+            elif tuple_or_list_or_any is None:
+                raise ValueError(f"Expected {len(out_keys)} return values, but got None.")
+            else:
+                raise ValueError(f"Expected {len(out_keys)} return values, but got a {type(tuple_or_list_or_any).__name__}.")
 
 def _number_to_label(n: int) -> str:
     label = ""

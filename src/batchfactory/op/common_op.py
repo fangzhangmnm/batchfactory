@@ -46,25 +46,32 @@ class FilterMissingFields(FilterOp):
     
 class Apply(ApplyOp):
     """
-    Apply a function to modify the entry data, or maps between fields.
+    Apply a function to modify the entry data.
     - `Apply(lambda data: operator.setitem(data, 'sum', data['a'] + data['b']))`
-    - `Apply(operator.add, ['a', 'b'], ['sum'])`
+    """
+    def __init__(self, func:Callable):
+        super().__init__()
+        self.func = func
+    def _args_repr(self): return ReprUtil.repr_lambda(self.func)
+    def update(self, entry:Entry)->None:
+        self.func(entry.data)
+
+class ApplyField(ApplyOp):
+    """
+    Apply a function to specific field(s) in the entry data.
+    - `ApplyField(lambda x: x + 1, 'field')`
+    - `ApplyField(lambda x, y: x + y, ['field1', 'field2'], ['result_field'])`
     """
     def __init__(self, func:Callable, *keys):
         super().__init__()
         self.func = func
-        self.in_keys, self.out_keys = KeysUtil.make_io_keys(*keys) if keys else (None, None)
-    def _args_repr(self): return ReprUtil.repr_lambda(self.func)
+        self.in_keys, self.out_keys = KeysUtil.make_io_keys(*keys)
+    def _args_repr(self): return ReprUtil.repr_lambda(self.func)+":"+ReprUtil.repr_keys(self.in_keys)+"->"+ReprUtil.repr_keys(self.out_keys)
     def update(self, entry:Entry)->None:
-        if self.in_keys is not None:
-            out_tuple = self.func(*KeysUtil.read_dict(entry.data, self.in_keys))
-            if len(self.out_keys) == 0:
-                out_tuple = ()
-            elif len(self.out_keys) == 1:
-                out_tuple = (out_tuple,)
-            KeysUtil.write_dict(entry.data, self.out_keys, *out_tuple)
-        else:
-            self.func(entry.data)
+        in_values = KeysUtil.read_dict(entry.data, self.in_keys)
+        out_values = self.func(*in_values)
+        out_values = KeysUtil.extract_out_list_from_func_return(out_values, self.out_keys)
+        KeysUtil.write_dict(entry.data, self.out_keys, *out_values)
 
 class SetField(ApplyOp):
     """
@@ -162,6 +169,7 @@ __all__ = [
     "FilterFailedEntries",
     "FilterMissingFields",
     "Apply",
+    "ApplyField",
     "SetField",
     "RemoveField",
     "RenameField",
