@@ -9,6 +9,8 @@ from typing import overload, get_args, get_origin, Tuple
 import json
 import itertools as itt
 import inspect, ast, textwrap
+from pathlib import Path
+import os
 
 def format_number(val):
     # use K M T Y
@@ -58,6 +60,16 @@ def get_format_keys(prompt):
     return keys
 
 
+def to_glob(glob_str: str|Path, default_extension: str = None) -> str:
+    p = Path(glob_str)
+    if '*' in str(p) or p.is_file():
+        return str(p)
+    elif p.is_dir():
+        ext = default_extension.lstrip('.') if default_extension else ""
+        if ext:
+            return str(p / f"**.{ext}")
+        else:
+            return str(p / "**")
 
 def _to_record(obj:BaseModel|Dict):
     if isinstance(obj, BaseModel):
@@ -313,6 +325,17 @@ class ReprUtil:
     def repr_str(s:str,max_len=35) -> str:
         s= s.replace("'", "\\'").replace('\n', '\\n').replace('\r', '\\r')
         return f"'{s[:max_len]}...'" if len(s) > max_len else f"'{s}'"
+    @staticmethod
+    def repr_path(p:str|Path,max_len=35) -> str:
+        s = Path(p).name
+        return ReprUtil.repr_str(s, max_len=max_len)
+    @staticmethod
+    def repr_glob(g:str|Path,max_len=35) -> str:
+        if isinstance(g, Path): g = str(g)
+        g = g.rsplit('\\', 1)[-1].rsplit('/', 1)[-1]
+        return ReprUtil.repr_str(g, max_len=max_len)
+
+
 
 
 __all__ = [
@@ -326,4 +349,5 @@ __all__ = [
     "KeysUtil",
     "CollectionsUtil",
     "ReprUtil",
+    "to_glob",
 ]

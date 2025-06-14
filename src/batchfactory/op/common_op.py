@@ -56,11 +56,11 @@ class Apply(ApplyOp):
     def update(self, entry:Entry)->None:
         self.func(entry.data)
 
-class ApplyField(ApplyOp):
+class MapField(ApplyOp):
     """
-    Apply a function to specific field(s) in the entry data.
-    - `ApplyField(lambda x: x + 1, 'field')`
-    - `ApplyField(lambda x, y: x + y, ['field1', 'field2'], ['result_field'])`
+    Map a function to specific field(s) in the entry data.
+    - `MapField(lambda x: x + 1, 'field')`
+    - `MapField(lambda x, y: x + y, ['field1', 'field2'], ['result_field'])`
     """
     def __init__(self, func:Callable, *keys):
         super().__init__()
@@ -169,7 +169,7 @@ __all__ = [
     "FilterFailedEntries",
     "FilterMissingFields",
     "Apply",
-    "ApplyField",
+    "MapField",
     "SetField",
     "RemoveField",
     "RenameField",

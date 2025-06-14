@@ -64,7 +64,7 @@ Please provide the line numbers marking the start of each scene in the text abov
 Your Output:
 """
 
-project = bf.CacheFolder("text_segmentation", 1, 0, 1)
+project = bf.ProjectFolder("text_segmentation", 1, 0, 2)
 broker  = bf.brokers.ConcurrentLLMCallBroker(project["cache/llm_broker.jsonl"])
 model = "o3-mini-2025-01-31@openai"
 
@@ -72,25 +72,37 @@ def AskLLM(prompt, output_key, identifier):
     g = GenerateLLMRequest(prompt, model=model)
     g |= ConcurrentLLMCall(project[f"cache/llm_call_{identifier}.jsonl"], broker, failure_behavior="retry")
     g |= ExtractResponseText(output_key=output_key)
-    g |= ApplyField(remove_cot, "text")
+    g |= MapField(remove_cot, "text")
     g |= CleanupLLMData()
     return g
 
-g = ReadTxtFolder("./data/gutenberg_books/*.txt")
-g |= ApplyField(lambda x: x.split('.')[0], "filename", "directory")
+g = ReadTxtFolder(project["in/books"])
+g |= MapField(lambda x: x.split('.')[0], "filename", "directory")
 
 # START_EXAMPLE_EXPORT
-g |= ApplyField(lambda x: split_text(label_line_numbers(x)), "text", "text_segments")
+g |= MapField(lambda x: split_text(label_line_numbers(x)), "text", "text_segments")
 spawn_chain = AskLLM(LABEL_SEG_PROMPT, "labels", 1)
-spawn_chain |= ApplyField(text_to_integer_list, "labels")
+spawn_chain |= MapField(text_to_integer_list, "labels")
 g | ListParallel(spawn_chain, "text_segments", "text", "labels", "labels")
-g |= ApplyField(flatten_list, "labels")
-g |= ApplyField(split_text_by_line_labels, ["text", "labels"], "text_segments")
+g |= MapField(flatten_list, "labels")
+g |= MapField(split_text_by_line_labels, ["text", "labels"], "text_segments")
 g |= ExplodeList(["directory", "text_segments"], ["directory", "text"])
 # END_EXAMPLE_EXPORT
 
 g |= RenameField("list_idx", "keyword")
-g |= ApplyField(lambda x: f"Chapter {x+1}", "keyword")
+g |= MapField(lambda x: f"Chapter {x+1}", "keyword")
 g |= WriteMarkdownEntries(project["out/chapterized.md"], "text")
 
+
+
+
+def get_alice(path):
+    import os, requests
+    if not os.path.exists(path):
+        r = requests.get("https://www.gutenberg.org/files/11/11-0.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(r.text)
+
+
+get_alice(project["in/books/Alice in Wonderland.txt"])
 g.execute(dispatch_brokers=True)

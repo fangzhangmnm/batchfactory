@@ -247,13 +247,13 @@ class CleanupLLMData(RemoveField):
         super().__init__(*fields)
 
 def remove_speaker_tag(line):
-    "Remove speaker tags. Use ApplyField to wrap it."
+    "Remove speaker tags. Use MapField to wrap it."
     pattern = r'^\s*[*_~`]*\w+[*_~`]*[:：][*_~`]*\s*'
     return re.sub(pattern, '', line)
 remove_speaker_tag._show_in_op_list = True
 
 def split_cot(text)->Tuple[str,str]:
-    "Split the LLM response into text and chain of thought (CoT). Use ApplyField to wrap it."
+    "Split the LLM response into text and chain of thought (CoT). Use MapField to wrap it."
     cot = ""
     if "</think>" in text:
         cot, text = text.split("</think>", 1)
@@ -263,7 +263,7 @@ def split_cot(text)->Tuple[str,str]:
 split_cot._show_in_op_list = True
 
 def remove_cot(text):
-    "Remove the chain of thought (CoT) from the LLM response. Use ApplyField to wrap it."
+    "Remove the chain of thought (CoT) from the LLM response. Use MapField to wrap it."
     return split_cot(text)[0]
 remove_cot._show_in_op_list = True
 

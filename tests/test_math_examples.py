@@ -1,7 +1,6 @@
 import batchfactory as bf
 from batchfactory.op import *
 import operator
-project = bf.CacheFolder("./tmp/test_math_examples", 1, 0, 0)
 
 import nest_asyncio; nest_asyncio.apply()  # For Jupyter and pytest compatibility
 
@@ -10,7 +9,7 @@ def test_Repeat():
     g = bf.Graph()
     g |= FromList([{"n": 1},{"n": 5}])
     g |= SetField({"prod":1})
-    g1 = ApplyField(operator.mul, ["prod", "rounds"], ["prod"])
+    g1 = MapField(operator.mul, ["prod", "rounds"], ["prod"])
     g |= Repeat(g1, max_rounds_key="n")
     g |= Sort("n")
     entries = g.execute(dispatch_brokers=False, mock=True)
@@ -39,10 +38,10 @@ def test_ListParallel():
     # Lets calculate 1^2 + 2^2 + 3^2  + 4^2 + 5^2 = 55 using Explode and SpawnOp
     g = bf.Graph()
     g |= FromList([{"n":1}, {"n": 5}])
-    g |= ApplyField(lambda x:list(range(1,1+x)), "n", "list")
-    g1 = ApplyField(lambda x: x**2, "item")
+    g |= MapField(lambda x:list(range(1,1+x)), "n", "list")
+    g1 = MapField(lambda x: x**2, "item")
     g |= ListParallel(g1, "list", "item")
-    g |= ApplyField(sum, "list", "sum")
+    g |= MapField(sum, "list", "sum")
     g |= Sort("n")
     entries = g.execute(dispatch_brokers=False, mock=True)
     print(g)
@@ -75,7 +74,8 @@ def test_Sort():
     new_list = [entry.data["n"] for entry in entries]
     assert new_list == [1, 2, 3, 4, 5, 6], f"Expected sorted list [1, 2, 3, 4, 5, 6], got {new_list}"
     
-def test_Barrier():
+def test_Barrier(tmp_path):
+    project = bf.ProjectFolder("test_barrier", 1, 0, 0, data_dir=tmp_path)
     # sort [3,5,4,2,1,6]
     g = bf.Graph()
     g |= FromList([3,5,4,2,1,6],output_key="n")

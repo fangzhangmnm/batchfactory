@@ -21,7 +21,7 @@ pip install --upgrade batchfactory  # grab the newest patch
 import batchfactory as bf
 from batchfactory.op import *
 
-project = bf.CacheFolder("quickstart", 1, 0, 0)
+project = bf.ProjectFolder("quickstart", 1, 0, 1)
 broker  = bf.brokers.ConcurrentLLMCallBroker(project["cache/llm_broker.jsonl"])
 
 PROMPT = """
@@ -29,11 +29,12 @@ Write a poem about {keyword}.
 """
 
 g = bf.Graph()
-g |= ReadMarkdownLines("./demo_data/greek_mythology_stories.md")
+g |= ReadMarkdownLines("./demo_data/greek_mythology_stories.md").to_graph()
 g |= Shuffle(42) | TakeFirstN(5)
 g |= GenerateLLMRequest(PROMPT, model="gpt-4o-mini@openai")
 g |= ConcurrentLLMCall(project["cache/llm_call.jsonl"],broker)
 g |= ExtractResponseText()
+g |= MapField(lambda headings,keyword: headings+[keyword], ["headings", "keyword"], "headings")
 g |= WriteMarkdownEntries(project["out/poems.md"])
 
 g.execute(dispatch_brokers=True)
@@ -55,12 +56,12 @@ Run it twice – everything after the first run is served from the on‑disk led
 ### Spawn snippet (Text Segmentation)
 
 ```python
-g |= ApplyField(lambda x: split_text(label_line_numbers(x)), "text", "text_segments")
+g |= MapField(lambda x: split_text(label_line_numbers(x)), "text", "text_segments")
 spawn_chain = AskLLM(LABEL_SEG_PROMPT, "labels", 1)
-spawn_chain |= ApplyField(text_to_integer_list, "labels")
+spawn_chain |= MapField(text_to_integer_list, "labels")
 g | ListParallel(spawn_chain, "text_segments", "text", "labels", "labels")
-g |= ApplyField(flatten_list, "labels")
-g |= ApplyField(split_text_by_line_labels, ["text", "labels"], "text_segments")
+g |= MapField(flatten_list, "labels")
+g |= MapField(split_text_by_line_labels, ["text", "labels"], "text_segments")
 g |= ExplodeList(["directory", "text_segments"], ["directory", "text"])
 ```
 
@@ -76,12 +77,13 @@ g = bf.Graph()
 g |= ReadMarkdownLines("./demo_data/greek_mythology_stories.md") | TakeFirstN(1)
 g |= SetField("teacher_name", "Teacher","student_name", "Student")
 
-g |= Teacher("Please introduce the text from {directory} titled {keyword}.", 0)
+g |= Teacher("Please introduce the text from {headings} titled {keyword}.", 0)
 loop_body = Student("Please ask questions or respond.", 1)
 loop_body |= Teacher("Please respond to the student or continue explaining.", 2)
 g |= Repeat(loop_body, 3)
 g |= Teacher("Please summarize.", 3)
 g |= ChatHistoryToText(template="**{role}**: {content}\n\n")
+g |= MapField(lambda headings,keyword: headings+[keyword], ["headings", "keyword"], "headings")
 g |= WriteMarkdownEntries(project["out/roleplay.md"])
 ```
 
@@ -130,7 +132,6 @@ g |= WriteMarkdownEntries(project["out/roleplay.md"])
 | Operation | Description |
 |-----------|-------------|
 | `Apply` | Apply a function to modify the entry data. |
-| `ApplyField` | Apply a function to specific field(s) in the entry data. |
 | `BeginIf` | Switch to port 1 if criteria is met. See `If` function for usage. |
 | `ChatHistoryToText` | Format the chat history into a single text. |
 | `CheckPoint` | A no-op checkpoint that saves inputs to the cache, and resumes from the cache. |
@@ -149,12 +150,13 @@ g |= WriteMarkdownEntries(project["out/roleplay.md"])
 | `GenerateLLMRequest` | Generate a LLM query from a given prompt, formatting it with the entry data. |
 | `If` | Switch to true_chain if criteria is met, otherwise stay on false_chain. |
 | `ListParallel` | Spawn entries from a list (or lists), process them in parallel, and collect them back to a list (or lists). |
+| `MapField` | Map a function to specific field(s) in the entry data. |
 | `PrintEntry` | Print the first n entries information. |
 | `PrintField` | Print the specific field(s) from the first n entries. |
 | `PrintTotalCost` | Print the total accumulated API cost for the output batch. |
 | `ReadJsonl` | Read JSON Lines files. |
-| `ReadMarkdownEntries` | Read Markdown files and extract entries with markdown heading hierarchy as directory and keyword. |
-| `ReadMarkdownLines` | Read Markdown files and extract non-empty lines as keyword with markdown heading hierarchy as directory. |
+| `ReadMarkdownEntries` | Read Markdown files and extract nonempty text under every headings with markdown headings as a list. |
+| `ReadMarkdownLines` | Read Markdown files and extract non-empty lines as keyword with markdown headings as a list. |
 | `ReadTxtFolder` | Collect all txt files in a folder. |
 | `RemoveField` | Remove fields from the entry data. |
 | `RenameField` | Rename fields in the entry data. |
@@ -168,7 +170,7 @@ g |= WriteMarkdownEntries(project["out/roleplay.md"])
 | `SetField` | Set fields in the entry data to specific values. |
 | `Shuffle` | Shuffle the entries in a batch randomly. |
 | `Sort` | Sort the entries in a batch |
-| `SortMarkdownEntries` | No documentation available |
+| `SortMarkdownEntries` | Sort Markdown entries based on headings and (optional) keyword. |
 | `SpawnFromList` | Spawn multiple spawn entries to port 1 based on a list (or lists). |
 | `TakeFirstN` | Takes the first N entries from the batch. discards the rest. |
 | `ToList` | Output a list of specific field(s) from entries. |
@@ -177,10 +179,11 @@ g |= WriteMarkdownEntries(project["out/roleplay.md"])
 | `While` | Executes the loop body while the criteria is met. |
 | `WhileNode` | Executes the loop body while the criteria is met. See `While` function for usage. |
 | `WriteJsonl` | Write entries to a JSON Lines file. |
-| `WriteMarkdownEntries` | Write entries to a Markdown file, with heading hierarchy defined by directory and keyword. |
-| `remove_cot` | Remove the chain of thought (CoT) from the LLM response. Use ApplyField to wrap it. |
-| `remove_speaker_tag` | Remove speaker tags. Use ApplyField to wrap it. |
-| `split_cot` | Split the LLM response into text and chain of thought (CoT). Use ApplyField to wrap it. |
+| `WriteMarkdownEntries` | Write entries to Markdown file(s), with heading hierarchy defined by headings and text as content. |
+| `WriteMarkdownLines` | Write keyword lists to Markdown file(s) as lines, with heading hierarchy defined by headings:list. |
+| `remove_cot` | Remove the chain of thought (CoT) from the LLM response. Use MapField to wrap it. |
+| `remove_speaker_tag` | Remove speaker tags. Use MapField to wrap it. |
+| `split_cot` | Split the LLM response into text and chain of thought (CoT). Use MapField to wrap it. |
 
 ---
 

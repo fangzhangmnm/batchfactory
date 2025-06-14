@@ -3,6 +3,7 @@ import os
 import jsonlines,json
 import aiofiles,asyncio
 from copy import deepcopy
+from pathlib import Path
 
 COMPACT_ON_RESUME=False
 DELETE_NONE=True
@@ -10,9 +11,9 @@ DELETE_NONE=True
 class _Ledger:
     """Cache synced storage based on jsonlines and atomic append
     also supports compact and autocast on retrieve."""
-    def __init__(self, cache_path: str):
-        self.path = cache_path
-        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    def __init__(self, path: str):
+        self.path = Path(path)
+        os.makedirs(self.path.parent, exist_ok=True)
         self._index = {} # should be guarded by deepcopy
         self._lock = asyncio.Lock()
         self._load()
@@ -104,7 +105,7 @@ class _Ledger:
                 writer.write(item)
 
     def _rewrite_cache(self,records:Dict):
-        tmp_path = self.path + '.tmp'
+        tmp_path = self.path.with_suffix('.tmp')
         with jsonlines.open(tmp_path, mode='w') as writer:
             for item in records.values():
                 writer.write(item)

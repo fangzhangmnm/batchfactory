@@ -1,7 +1,7 @@
 import batchfactory as bf
 from batchfactory.op import *
 
-project = bf.CacheFolder("roleplay", 1, 0, 2)
+project = bf.ProjectFolder("roleplay", 1, 0, 2)
 broker  = bf.brokers.ConcurrentLLMCallBroker(project["cache/llm_broker.jsonl"])
 
 def Character(character_key, user_prompt):
@@ -15,7 +15,7 @@ def Character(character_key, user_prompt):
         seg |= TransformCharacterDialogueForLLM(character_key=character_key)
         seg |= ConcurrentLLMCall(project[f"cache/llm_call_{identifier}.jsonl"], broker, failure_behavior="retry")
         seg |= ExtractResponseText()
-        seg |= ApplyField(remove_speaker_tag, "text")
+        seg |= MapField(remove_speaker_tag, "text")
         seg |= UpdateChatHistory(character_key=character_key)
         seg |= ExtractResponseMeta() | CleanupLLMData()
         return seg
@@ -31,12 +31,13 @@ g = bf.Graph()
 g |= ReadMarkdownLines("./demo_data/greek_mythology_stories.md") | TakeFirstN(1)
 g |= SetField("teacher_name", "Teacher","student_name", "Student")
 
-g |= Teacher("Please introduce the text from {directory} titled {keyword}.", 0)
+g |= Teacher("Please introduce the text from {headings} titled {keyword}.", 0)
 loop_body = Student("Please ask questions or respond.", 1)
 loop_body |= Teacher("Please respond to the student or continue explaining.", 2)
 g |= Repeat(loop_body, 3)
 g |= Teacher("Please summarize.", 3)
 g |= ChatHistoryToText(template="**{role}**: {content}\n\n")
+g |= MapField(lambda headings,keyword: headings+[keyword], ["headings", "keyword"], "headings")
 g |= WriteMarkdownEntries(project["out/roleplay.md"])
 # END_EXAMPLE_EXPORT
 

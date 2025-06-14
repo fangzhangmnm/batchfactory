@@ -21,7 +21,7 @@ class CheckpointOp(BaseOp, ABC):
         self.keep_all_rev = keep_all_rev
         self.emitted_revs = {} # prevent the same entry being emitted twice
 
-    def _args_repr(self): return ReprUtil.repr_str(os.path.basename(self._ledger.path))
+    def _args_repr(self): return ReprUtil.repr_path(self._ledger.path)
 
     def reset(self):
         super().reset()
