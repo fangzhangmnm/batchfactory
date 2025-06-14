@@ -4,6 +4,10 @@ Composable, cache‑aware pipelines for **parallel LLM workflows**, API calls, a
 
 > **Status — `v0.3` alpha.** More robust and battle-tested on small projects. Still evolving quickly — APIs may shift.
 
+![BatchFactory cover](https://raw.githubusercontent.com/fangzhangmnm/batchfactory/main/docs/assets/batchfactory.jpg)
+
+[📦 GitHub Repository →](https://github.com/fangzhangmnm/batchfactory)
+
 ---
 
 ## Install
