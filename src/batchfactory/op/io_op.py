@@ -48,7 +48,7 @@ class ReaderOp(SourceOp, ABC):
 
 
 class ReadJsonl(ReaderOp):
-    """Read JSON Lines files."""
+    """Read JSON Lines files. (also supports json array)"""
     def __init__(self, 
                  glob_str: str|Path, 
                  keys: List[str]=None,
@@ -94,37 +94,27 @@ class WriteJsonl(OutputOp):
     """Write entries to a JSON Lines file."""
     def __init__(self, path: str, 
                  output_keys: str|List[str]=None,
-                 only_current:bool=False):
-        """if only_current, will ignore old entries in the output file that are not appearing in the current batch,
-        otherwise will update on old entries based on idx and rev if output file already exists.
+                 ):
+        """
         will only output entry.data, but flattened idx and rev into entry.data
         """
         super().__init__()
         self.path = path
-        self.only_current = only_current
         self.output_keys = _to_list_2(output_keys) if output_keys else None
-        self._output_entries = {}
     def _args_repr(self): return ReprUtil.repr_path(self.path)
     def output_batch(self,batch:Dict[str,Entry])->None:
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
-        self._output_entries.clear()
-        if (not self.only_current) and os.path.exists(self.path):
-            with jsonlines.open(self.path, 'r') as reader:
-                for record in reader:
-                    entry = Entry(
-                        idx=record['idx'],
-                        rev=record.get('rev', 0),
-                        data=record
-                    )
-                    self._update(entry)
+        output_entries = {}
         for entry in batch.values():
-            self._update(entry)
+            if entry.idx in output_entries and entry.rev < output_entries[entry.idx].rev:
+                print("failed to update entry:", entry.idx, "rev:", entry.rev)
+                continue
+            output_entries[entry.idx] = entry
         with jsonlines.open(self.path, 'w') as writer:
-            for entry in self._output_entries.values():
+            for entry in output_entries.values():
                 record = self._prepare_output(entry)
                 writer.write(record)
-        print(f"Output {len(self._output_entries)} entries to {os.path.abspath(self.path)}")
-        self._output_entries.clear()
+        print(f"Output {len(output_entries)} entries to {os.path.abspath(self.path)}")
     def _prepare_output(self,entry:Entry):
         if not self.output_keys:
             record = deepcopy(entry.data)
@@ -133,20 +123,6 @@ class WriteJsonl(OutputOp):
         record['idx'] = entry.idx
         record['rev'] = entry.rev
         return record
-    def _update(self,new_entry):
-        if new_entry.idx in self._output_entries and new_entry.rev < self._output_entries[new_entry.idx].rev:
-                print("failed")
-                return
-        self._output_entries[new_entry.idx] = new_entry
-
-# def generate_directory_str(directory: List[str]) -> str:
-#     directory = [d.strip().replace(" ", "_").replace("/", "_") for d in directory]
-#     return "/".join(directory)
-
-# def generate_idx_from_directory_keyword(directory: List[str], keyword: str)-> str:
-#     directory = [d.strip().replace(" ", "_").replace("/", "_") for d in directory]
-#     keyword = keyword.strip().replace(" ", "_").replace("/", "_")
-#     return hash_text("/".join(directory) + "/" + keyword)
 
 def generate_idx_from_strings(strings: List[str]) -> str:
     def escape_string(s):
@@ -173,6 +149,7 @@ class ReadTxtFolder(ReaderOp):
         keys = [filename_key, "text"]
         super().__init__(keys=[f for f in keys if f], offset=offset, max_count=max_count, fire_once=fire_once)
         self.glob_str = to_glob(glob_str)
+        print(self.glob_str)
         self.text_key = text_key
         self.filename_key = filename_key
         self.remove_extension_in_filename = remove_extension_in_filename
@@ -406,125 +383,6 @@ class SortMarkdownEntries(Sort):
             return (build_sort_key_from_headings(headings), keyword)
         else:
             return build_sort_key_from_headings(headings)
-        
-
-
-
-
-
-
-
-
-
-
-        
-
-
-                
-
-
-
-
-
-# class ReadMarkdown(ReaderOp):
-#     def __init__(self, 
-#                     glob_str: str,
-#                     context_key = "text",
-#                     keyword_key = "keyword",
-#                     directory_key = "directory",
-#                     offset: int = 0,
-#                     max_count: int = None,
-#                     fire_once: bool = True,
-#                     directory_mode: Literal['list', 'str'] = 'list',
-#                     format: Literal['lines', 'entries'] = 'entries',
-#                     ):
-#         if format == 'lines': context_key = None
-#         keys = [keyword_key, context_key, directory_key]
-#         keys = [f for f in keys if f]
-#         super().__init__(keys=keys, offset=offset, max_count=max_count, fire_once=fire_once)
-#         self.glob_str = to_glob(glob_str)
-#         self.keyword_key = keyword_key
-#         self.context_key = context_key
-#         self.directory_key = directory_key
-#         self.directory_mode = directory_mode
-#         self.format = format
-#     def _args_repr(self): return ReprUtil.repr_str(self.glob_str)
-#     def _iter_records(self) -> Iterator[Dict[str, Any]]:
-#         factory = {"lines": iter_markdown_lines, "entries": iter_markdown_entries}[self.format]
-#         for path in sorted(glob(self.glob_str)):
-#             for directory, keyword, context in factory(path):
-#                 idx = generate_idx_from_directory_keyword(directory, keyword)
-#                 record = {self.keyword_key: keyword}
-#                 if self.context_key and self.format == "entries":
-#                     record[self.context_key] = context
-#                 if self.directory_key:
-#                     if self.directory_mode == 'list':
-#                         record[self.directory_key] = directory
-#                     elif self.directory_mode == 'str':
-#                         record[self.directory_key] = generate_directory_str(directory)
-#                 yield idx, record
-
-# class ReadMarkdownLines(ReadMarkdown):
-#     "Read Markdown files and extract non-empty lines as keyword with markdown heading hierarchy as directory."
-#     def __init__(self,*args, **kwargs):
-#         kwargs['format'] = 'lines'
-#         super().__init__(*args, **kwargs)
-# class ReadMarkdownEntries(ReadMarkdown):
-#     "Read Markdown files and extract entries with markdown heading hierarchy as directory and keyword."
-#     def __init__(self,*args, **kwargs):
-#         kwargs['format'] = 'entries'
-#         super().__init__(*args, **kwargs)
-
-# class WriteMarkdownEntries(OutputOp):
-#     "Write entries to a Markdown file, with heading hierarchy defined by directory and keyword."
-#     def __init__(self, path: str, 
-#                  context_key: str = "text",
-#                  keyword_key: str = "keyword",
-#                  directory_key: str = "directory",
-#                  sort: bool = True,
-#                  ):
-#         super().__init__()
-#         self.path = path
-#         os.makedirs(os.path.dirname(self.path), exist_ok=True)
-#         self.directory_key = directory_key
-#         self.keyword_key = keyword_key
-#         self.context_key = context_key
-#         self.sort = sort
-#     def _args_repr(self): return ReprUtil.repr_str(self.path)
-#     def output_batch(self, entries: Dict[str, Entry]) -> None:
-#         tuple_deduplicate ={}
-#         if os.path.exists(self.path):
-#             # tuples.extend(iter_markdown_entries(self.path))
-#             input_tuples = iter_markdown_entries(self.path)
-#             for directory, keyword, context in input_tuples:
-#                 tuple_deduplicate[(tuple(directory), keyword)] = (directory, keyword, context)
-#         for entry in entries.values():
-#             directory = entry.data.get("directory", [])
-#             if isinstance(directory, str):
-#                 directory = directory.split("/")
-#             keyword = entry.data.get(self.keyword_key, "")
-#             context = entry.data.get(self.context_key, "")
-#             context = remove_markdown_headings(context)
-#             # tuples.append((directory, keyword, context))
-#             tuple_deduplicate[(tuple(directory), keyword)] = (directory, keyword, context)
-#         tuples = [v for v in tuple_deduplicate.values()]
-#         write_markdown(tuples, self.path, sort=self.sort)
-#         print(f"Output {len(entries)} entries to {os.path.abspath(self.path)}")
-
-# class SortMarkdownEntries(Sort):
-#     def __init__(self,
-#                  directory_key: str = "directory",
-#                     keyword_key: str = "keyword",
-#                     barrier_level = 1,
-#     ):
-#         super().__init__(custom_func=self._sort_key, barrier_level=barrier_level)
-#     def _sort_key(self, data: Dict) -> Tuple:
-#         directory = data.get("directory", [])
-#         if isinstance(directory, str):
-#             directory = directory.split("/")
-#         keyword = data.get("keyword", "")
-#         return sort_markdown_entries((directory, keyword, ""))
-
 
 
 class FromList(SourceOp):

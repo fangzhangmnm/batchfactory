@@ -1,5 +1,6 @@
 from ..core import *
 from ..lib.llm_backend import LLMRequest, LLMMessage, LLMResponse, compute_llm_cost, get_provider_name
+from ..lib.prompt_maker import LLMPromptMaker
 from ..lib.utils import get_format_keys, hash_texts, ReprUtil
 from ..brokers.concurrent_llm_call_broker import ConcurrentLLMCallBroker
 from ..core.broker import BrokerJobRequest, BrokerJobResponse, BrokerJobStatus
@@ -7,34 +8,33 @@ from .common_op import RemoveField
 from ..lib.utils import  _to_record, _to_BaseModel, _dict_to_dataclass, _to_list_2, _pick_field_or_value_strict
 from .broker_op import BrokerOp, BrokerFailureBehavior
 import copy
-from typing import List, Dict, NamedTuple, Set, Tuple
+from typing import List, Dict, NamedTuple, Set, Tuple, Any
 from dataclasses import asdict
 import re
-
-
+from abc import ABC, abstractmethod
 
 class GenerateLLMRequest(ApplyOp):
     "Generate a LLM query from a given prompt, formatting it with the entry data."
-    def __init__(self,user_prompt,model,
+    def __init__(self,user_prompt:str|LLMPromptMaker|None,model,
                  max_completion_tokens=4096,
                  role="user",
                  output_key="llm_request",
-                 system_prompt=None,
+                 system_prompt:str|LLMPromptMaker|None=None,
                  chat_history_key:str|bool|None=None, # if provided, will append the history to the prompt, if True, default to "chat_history"
-                 after_prompt=None, # if provided, will append the after_prompt after the history
+                 after_prompt:str|LLMPromptMaker|None=None, # if provided, will append the after_prompt after the history
                  ):
         super().__init__()
         self.role = role
-        self.user_prompt = user_prompt
-        self.system_prompt = system_prompt
+        self.user_prompt:LLMPromptMaker = LLMPromptMaker.from_prompt(user_prompt)
+        self.system_prompt:LLMPromptMaker = LLMPromptMaker.from_prompt(system_prompt) if system_prompt else None
+        self.after_prompt:LLMPromptMaker = LLMPromptMaker.from_prompt(after_prompt) if after_prompt else None
         if chat_history_key is True: 
             chat_history_key = "chat_history"
         self.chat_history_key = chat_history_key
-        self.after_prompt = after_prompt
         self.model = model
         self.max_completion_tokens = max_completion_tokens
         self.output_key = output_key
-    def _args_repr(self): return ReprUtil.repr_str(self.user_prompt)
+    def _args_repr(self): return repr(self.user_prompt)
     def update(self, entry: Entry) -> None:
         messages = self._build_messages(entry)
         request_obj = LLMRequest(
@@ -47,18 +47,18 @@ class GenerateLLMRequest(ApplyOp):
     
     def _build_messages(self,entry:Entry)->List[LLMMessage]:
         messages = []
-        if self.system_prompt:
-            system_str = self.system_prompt.format(**{k: entry.data[k] for k in get_format_keys(self.system_prompt)})
+        if self.system_prompt is not None:
+            system_str = self.system_prompt.make_prompt(entry.data)
             messages.append(LLMMessage(role="system", content=system_str))
-        if self.user_prompt:
-            prompt_str = self.user_prompt.format(**{k: entry.data[k] for k in get_format_keys(self.user_prompt)})
+        if self.user_prompt is not None:
+            prompt_str = self.user_prompt.make_prompt(entry.data)
             messages.append(LLMMessage(role=self.role, content=prompt_str))
-        if self.chat_history_key:
+        if self.chat_history_key is not None:
             history = entry.data.get(self.chat_history_key, [])
             for msg in history:
                 messages.append(LLMMessage(role=msg["role"], content=msg["content"]))
-        if self.after_prompt:
-            after_prompt_str = self.after_prompt.format(**{k: entry.data[k] for k in get_format_keys(self.after_prompt)})
+        if self.after_prompt is not None:
+            after_prompt_str = self.after_prompt.make_prompt(entry.data)
             messages.append(LLMMessage(role=self.role, content=after_prompt_str))
         return messages
 
@@ -157,7 +157,7 @@ class TransformCharacterDialogueForLLM(ApplyOp):
     def __init__(self, 
                  character_name:str|None=None, # e.g. "Timmy"
                  character_key:str|None=None, # e.g. "character_name"
-                 prompt_template="{name}: {content}\n",
+                 dialogue_template="{name}: {content}\n",
                  input_key="llm_request",
     ):
         super().__init__()
@@ -165,7 +165,7 @@ class TransformCharacterDialogueForLLM(ApplyOp):
         self.character_key = character_key
         self.input_key = input_key
         self.allowed_roles=["user","assistant","system"]
-        self.prompt_template = prompt_template
+        self.dialogue_template = dialogue_template
     def update(self, entry: Entry) -> None:
         llm_request = entry.data.get(self.input_key, None)
         llm_request:LLMRequest = LLMRequest.model_validate(llm_request)
@@ -180,7 +180,7 @@ class TransformCharacterDialogueForLLM(ApplyOp):
                 role = "assistant"
             else:
                 role = "user"
-            context = self.prompt_template.format(name=input_message.role, content=input_message.content)
+            context = self.dialogue_template.format(name=input_message.role, content=input_message.content)
             if len(output_messages)>0 and output_messages[-1].role == role:
                 output_messages[-1].content += context
             else:

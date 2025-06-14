@@ -2,7 +2,7 @@
 import batchfactory as bf
 from batchfactory.op import *
 
-project = bf.ProjectFolder("quickstart", 1, 0, 1)
+project = bf.ProjectFolder("quickstart", 1, 0, 2)
 broker  = bf.brokers.ConcurrentLLMCallBroker(project["cache/llm_broker.jsonl"])
 
 PROMPT = """

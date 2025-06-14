@@ -52,6 +52,7 @@ def hash_json(json_obj)->str:
     return hash_text(json.dumps(json_obj, sort_keys=True))
 
 def get_format_keys(prompt):
+    prompt = str(prompt)
     formatter= Formatter()
     keys=[]
     for _, key, _, _ in formatter.parse(prompt):
@@ -64,12 +65,18 @@ def to_glob(glob_str: str|Path, default_extension: str = None) -> str:
     p = Path(glob_str)
     if '*' in str(p) or p.is_file():
         return str(p)
-    elif p.is_dir():
-        ext = default_extension.lstrip('.') if default_extension else ""
-        if ext:
-            return str(p / f"**.{ext}")
+    elif p.exists():
+        if p.is_file():
+            return str(p)
         else:
-            return str(p / "**")
+            ext = default_extension.lstrip('.') if default_extension else ""
+            return str(p / f"**/*.{ext}") if ext else str(p / "**")
+    else:
+        if p.suffix:
+            return str(p)
+        else:
+            ext = default_extension.lstrip('.') if default_extension else ""
+            return str(p / f"**/*.{ext}") if ext else str(p / "**")
 
 def _to_record(obj:BaseModel|Dict):
     if isinstance(obj, BaseModel):

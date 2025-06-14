@@ -1,7 +1,7 @@
 import batchfactory as bf
 from batchfactory.op import *
 
-project = bf.ProjectFolder("roleplay", 1, 0, 2)
+project = bf.ProjectFolder("roleplay", 1, 0, 3)
 broker  = bf.brokers.ConcurrentLLMCallBroker(project["cache/llm_broker.jsonl"])
 
 def Character(character_key, user_prompt):

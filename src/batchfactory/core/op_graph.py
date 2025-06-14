@@ -63,32 +63,31 @@ class Graph:
 
 def summary_graph(title,graph,node_info=None):
     nodes, edges = graph.nodes, graph.edges
-    if graph.is_chain() and node_info is None:
-        return "|".join(repr(node) for node in nodes)
-    else:
-        node_label = {node: _number_to_label(idx+1) for idx, node in enumerate(nodes)}
-        node_outputs = {node: {} for node in nodes}
-        for edge in edges:
-            node_outputs[edge.source][edge.source_port] = (edge.target,edge.target_port)
-        text=f"{title}\n"
-        for node in nodes:
-            text += f"(op{node_label[node]}): {repr(node)}"
-            text += " -> "
-            desc = []
-            for source_port in range(max(node_outputs[node].keys(), default=0) + 1):
-                if source_port in node_outputs[node]:
-                    target, target_port = node_outputs[node][source_port]
-                    if target_port>0:
-                        desc.append(f"op{node_label[target]}[{target_port}]")
-                    else:
-                        desc.append(f"op{node_label[target]}")
+    # if graph.is_chain() and node_info is None:
+    #     return "|".join(repr(node) for node in nodes)
+    node_label = {node: _number_to_label(idx+1) for idx, node in enumerate(nodes)}
+    node_outputs = {node: {} for node in nodes}
+    for edge in edges:
+        node_outputs[edge.source][edge.source_port] = (edge.target,edge.target_port)
+    text=f"{title}\n"
+    for node in nodes:
+        text += f"(op{node_label[node]}): {repr(node)}"
+        text += " -> "
+        desc = []
+        for source_port in range(max(node_outputs[node].keys(), default=0) + 1):
+            if source_port in node_outputs[node]:
+                target, target_port = node_outputs[node][source_port]
+                if target_port>0:
+                    desc.append(f"op{node_label[target]}[{target_port}]")
                 else:
-                    desc.append("None")
-            text += ", ".join(desc)
-            if node_info and node in node_info:
-                text += ": " + node_info[node]
-            text += "\n"
-        return text
+                    desc.append(f"op{node_label[target]}")
+            else:
+                desc.append("None")
+        text += ", ".join(desc)
+        if node_info and node in node_info:
+            text += ": " + node_info[node]
+        text += "\n"
+    return text
 
 class OpGraphConnector:
     @staticmethod

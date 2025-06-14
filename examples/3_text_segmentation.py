@@ -64,20 +64,19 @@ Please provide the line numbers marking the start of each scene in the text abov
 Your Output:
 """
 
-project = bf.ProjectFolder("text_segmentation", 1, 0, 2)
+project = bf.ProjectFolder("text_segmentation", 1, 0, 3)
 broker  = bf.brokers.ConcurrentLLMCallBroker(project["cache/llm_broker.jsonl"])
-model = "o3-mini-2025-01-31@openai"
+model = "gpt-4o-mini@openai" # for demo only, need a better model for this task
 
 def AskLLM(prompt, output_key, identifier):
     g = GenerateLLMRequest(prompt, model=model)
     g |= ConcurrentLLMCall(project[f"cache/llm_call_{identifier}.jsonl"], broker, failure_behavior="retry")
     g |= ExtractResponseText(output_key=output_key)
-    g |= MapField(remove_cot, "text")
+    g |= MapField(remove_cot, output_key)
     g |= CleanupLLMData()
     return g
 
 g = ReadTxtFolder(project["in/books"])
-g |= MapField(lambda x: x.split('.')[0], "filename", "directory")
 
 # START_EXAMPLE_EXPORT
 g |= MapField(lambda x: split_text(label_line_numbers(x)), "text", "text_segments")
@@ -86,12 +85,11 @@ spawn_chain |= MapField(text_to_integer_list, "labels")
 g | ListParallel(spawn_chain, "text_segments", "text", "labels", "labels")
 g |= MapField(flatten_list, "labels")
 g |= MapField(split_text_by_line_labels, ["text", "labels"], "text_segments")
-g |= ExplodeList(["directory", "text_segments"], ["directory", "text"])
+g |= ExplodeList(["filename","text_segments"],["filename","text"])
 # END_EXAMPLE_EXPORT
 
-g |= RenameField("list_idx", "keyword")
-g |= MapField(lambda x: f"Chapter {x+1}", "keyword")
-g |= WriteMarkdownEntries(project["out/chapterized.md"], "text")
+g |= MapField(lambda filename, list_idx: [filename, f"Chapter {list_idx+1}"], ["filename", "list_idx"], "headings")
+g |= WriteMarkdownEntries(project["out/chapterized"],filename_key="filename")
 
 
 
