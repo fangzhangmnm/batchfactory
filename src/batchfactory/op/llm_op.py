@@ -1,5 +1,5 @@
 from ..core import *
-from ..lib.llm_backend import LLMRequest, LLMMessage, LLMResponse, compute_llm_cost, get_provider_name
+from ..lib.llm_backend import LLMRequest, LLMMessage, LLMResponse
 from ..lib.prompt_maker import PromptMaker
 from ..lib.utils import get_format_keys, hash_texts, ReprUtil
 from ..brokers.concurrent_llm_call_broker import ConcurrentLLMCallBroker
@@ -90,8 +90,7 @@ class ExtractResponseMeta(ApplyOp):
         if self.output_model_key:
             entry.data[self.output_model_key] = llm_request.model
         if self.accumulated_cost_key:
-            cost = compute_llm_cost(llm_response,get_provider_name(llm_request.model))
-            entry.data[self.accumulated_cost_key] = cost + entry.data.get(self.accumulated_cost_key, 0.0)
+            entry.data[self.accumulated_cost_key] = llm_response.cost + entry.data.get(self.accumulated_cost_key, 0.0)
 
 class ExtractResponseText(ApplyOp):
     "Extract the text content from the LLM response and store it to entry data."

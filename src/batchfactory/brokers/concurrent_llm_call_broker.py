@@ -1,12 +1,8 @@
 from .concurrent_api_call_broker import ConcurrentAPICallBroker
 from ..core.broker import BrokerJobRequest, BrokerJobResponse, BrokerJobStatus
-from ..lib.utils import TokenCounter
 from ..lib.llm_backend import *
-from openai import AsyncOpenAI
-from openai.types.chat import ChatCompletion
 
 from typing import List,Iterable,Dict
-import asyncio
 from tqdm.auto import tqdm
 
 
@@ -24,32 +20,35 @@ class ConcurrentLLMCallBroker(ConcurrentAPICallBroker):
                             rate_limit=rate_limit,
                             max_number_per_batch=max_number_per_batch
         )
-        self.token_counter = TokenCounter()
+        self.token_counter = LLMTokenCounter()
     async def _call_api_async(self, request: BrokerJobRequest, mock: bool)-> BrokerJobResponse:
         llm_request: LLMRequest = request.request_object
-        if mock:
-            await asyncio.sleep(0.1)
-            llm_response = _get_dummy_response(llm_request)
-        else:
-            provider = get_provider_name(llm_request.model)
-            client:AsyncOpenAI = await llm_client_hub.get_client_async(provider, async_client=True)
+        llm_response = await get_llm_response_async(llm_request, mock=mock)
+        # if mock:
+        #     llm_response = await get_dummy_llm_response_async(llm_request)
+            # await asyncio.sleep(0.1)
+            # llm_response = _get_dummy_response(llm_request)
+        # else:
+        #     llm_response = await get_llm_response_async(llm_request)
+            # provider = get_provider_name(llm_request.model)
+            # client:AsyncOpenAI = await llm_client_hub.get_client_async(provider, async_client=True)
 
-            completion:ChatCompletion = await client.chat.completions.create(
-                model=get_model_name(llm_request.model),
-                messages=llm_request.messages,
-                max_completion_tokens=llm_request.max_completion_tokens,
-            )
+            # completion:ChatCompletion = await client.chat.completions.create(
+            #     model=get_model_name(llm_request.model),
+            #     messages=llm_request.messages,
+            #     max_completion_tokens=llm_request.max_completion_tokens,
+            # )
 
-            llm_response = LLMResponse(
-                custom_id=llm_request.custom_id,
-                model=completion.model,
-                message=LLMMessage(
-                    role=completion.choices[0].message.role,
-                    content=completion.choices[0].message.content
-                ),
-                prompt_tokens=completion.usage.prompt_tokens,
-                completion_tokens=completion.usage.completion_tokens
-            )
+            # llm_response = LLMResponse(
+            #     custom_id=llm_request.custom_id,
+            #     model=completion.model,
+            #     message=LLMMessage(
+            #         role=completion.choices[0].message.role,
+            #         content=completion.choices[0].message.content
+            #     ),
+            #     prompt_tokens=completion.usage.prompt_tokens,
+            #     completion_tokens=completion.usage.completion_tokens
+            # )
         return BrokerJobResponse(
             job_idx=request.job_idx,
             status=BrokerJobStatus.DONE if llm_response else BrokerJobStatus.FAILED,
@@ -60,12 +59,10 @@ class ConcurrentLLMCallBroker(ConcurrentAPICallBroker):
         if response.response_object is not None:
             llm_request: LLMRequest = request.request_object
             llm_response: LLMResponse = response.response_object
-            input_price_M, output_price_M = llm_client_hub.get_price_M(llm_request.model)
             self.token_counter.update(
                 input_tokens=llm_response.prompt_tokens,
                 output_tokens=llm_response.completion_tokens,
-                input_price_M=input_price_M,
-                output_price_M=output_price_M
+                cost=llm_response.cost,
             )
         if pbar:
             pbar.set_postfix_str(self.token_counter.get_summary_str())
@@ -74,17 +71,17 @@ class ConcurrentLLMCallBroker(ConcurrentAPICallBroker):
         print(f"Token usage: {self.token_counter.get_summary_str()}")
         self.token_counter.reset()
 
-def _get_dummy_response(request:LLMRequest) -> LLMResponse:
-    return LLMResponse(
-        custom_id=request.custom_id,
-        model=request.model,
-        message=LLMMessage(
-            role="assistant",
-            content=f"Dummy response for {request.custom_id}"
-        ),
-        prompt_tokens=100,
-        completion_tokens=50
-    )
+# def _get_dummy_response(request:LLMRequest) -> LLMResponse:
+#     return LLMResponse(
+#         custom_id=request.custom_id,
+#         model=request.model,
+#         message=LLMMessage(
+#             role="assistant",
+#             content=f"Dummy response for {request.custom_id}"
+#         ),
+#         prompt_tokens=100,
+#         completion_tokens=50
+#     )
 
 __all__ = [
     "ConcurrentLLMCallBroker",

@@ -1,5 +1,4 @@
 from ..core.broker import ImmediateBroker, BrokerJobRequest, BrokerJobResponse, BrokerJobStatus
-from ..lib.utils import format_number, TokenCounter
 from ..lib.llm_backend import *
 from openai import OpenAI, AsyncOpenAI
 from openai.types.chat import ChatCompletion
@@ -29,7 +28,6 @@ class ConcurrentAPICallBroker(ImmediateBroker, ABC):
         self.concurrency_limit = concurrency_limit
         self.rate_limit = rate_limit
         self.max_number_per_batch = max_number_per_batch
-        self.token_counter = TokenCounter()
         self.global_lock = Lock()
         self.concurrency_semaphore = None
         self.pbar = None

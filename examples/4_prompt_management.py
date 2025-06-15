@@ -23,7 +23,7 @@ class MyPromptMaker(bf.PromptMaker):
                 chinese_character_count=int(self.word_count / 1.75)
             )
 
-project = bf.ProjectFolder("prompt_management", 1, 0, 3)
+project = bf.ProjectFolder("prompt_management", 1, 0, 5)
 broker  = bf.brokers.ConcurrentLLMCallBroker(project["cache/llm_broker.jsonl"])
 model = "gpt-4o-mini@openai"
 

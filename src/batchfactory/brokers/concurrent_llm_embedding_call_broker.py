@@ -1,6 +1,5 @@
 from .concurrent_api_call_broker import ConcurrentAPICallBroker
 from ..core.broker import BrokerJobRequest, BrokerJobResponse, BrokerJobStatus
-from ..lib.utils import TokenCounter
 from ..lib.llm_backend import *
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion

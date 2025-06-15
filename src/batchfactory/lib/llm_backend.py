@@ -1,56 +1,16 @@
 from .model_list import model_desc, client_desc
-from .utils import format_number, TokenCounter, hash_text
+from .utils import format_number, hash_text
 
 from openai import OpenAI,AsyncOpenAI
-from typing import Union, Dict, Tuple
+from typing import Union, Dict, Tuple, Literal
 import os
 from functools import lru_cache
 from pydantic import BaseModel
 from typing import List, Union, Iterable, Dict, Tuple
+import asyncio
 from asyncio import Lock
-
-
-class LLMMessage(BaseModel):
-    role: str
-    content: str
-
-class LLMRequest(BaseModel):
-    custom_id: str
-    messages: List[LLMMessage]
-    model: str
-    max_completion_tokens: int
-
-
-class LLMResponse(BaseModel):
-    custom_id: str
-    model: str
-    message: LLMMessage
-    prompt_tokens: int
-    completion_tokens: int
-
-
-
-
-
-
-# text = "This is a sample sentence for embedding lol."
-# model = "text-embedding-3-small"
-# response = openai.embeddings.create(
-#     model=model,
-#     input=text
-# )
-# embedding = response.data[0].embedding
-
-
-# class ConcurrentLLMEmbeddingCallBroker(ConcurrentAPICallBroker):
-#     def __init__(self, 
-#                  cache_path:str,
-#                  concurrency_limit:int=100,
-#                  rate_limit:int=100,
-#                  max_number_per_batch:int=None
-#     ):
-
-
+import numpy as np
+from .base64_utils import encode_ndarray
 
 def get_provider_name(model:str) -> str:
     return model.split('@', 1)[-1]
@@ -81,48 +41,260 @@ class LLMClientHub:
     async def get_client_async(self, provider:str, async_client:bool=True) -> Union[OpenAI, AsyncOpenAI]:
         async with self.lock:
             return self.get_client(provider, async_=async_client)
-    def get_price_M(self, model:str):
+    def get_price_M(self, model:str, is_batch=False):
         if model not in model_desc:
             raise ValueError(f"Model {model} is not supported.")
-        return model_desc[model]['price_per_input_token_M'], model_desc[model]['price_per_output_token_M']
+        input_price_M = self.get_property(model, 'price_per_input_token_M', 0.0)
+        output_price_M = self.get_property(model, 'price_per_output_token_M', 0.0)
+        batch_discount = self.get_property(model, 'batch_price_discount', 1.0)
+        if is_batch:
+            input_price_M, output_price_M = input_price_M * batch_discount, output_price_M * batch_discount
+        return input_price_M, output_price_M
+    def get_property(self, model:str, property_name:str, default=None):
+        if model not in model_desc:
+            raise ValueError(f"Model {model} is not supported.")
+        return model_desc[model].get(property_name, default)
+    def list_all_models(self, endpoint:str=None, provider:str=None) -> List[str]:
+        models = []
+        for model, desc in model_desc.items():
+            if endpoint and desc.get(endpoint, False) is False:
+                continue
+            if provider and get_provider_name(model) != provider:
+                continue
+            models.append(model)
+        return models
 
 
-def immediately_query(query_str:str,model:str,max_tokens:int=4096,token_counter:TokenCounter=None) -> str:
-    client = llm_client_hub.get_client(get_provider_name(model), async_=False)
-    completion = client.chat.completions.create(
-        model=get_model_name(model),
-        messages=[
-            {"role": "user", "content": query_str},
-        ],
-        max_completion_tokens=max_tokens
-    )
-    if token_counter:
-        input_price_M, output_price_M = llm_client_hub.get_price_M(model)
-        token_counter.update(
-            input_tokens=completion.usage.input_tokens,
-            output_tokens=completion.usage.output_tokens,
-            input_price_M=input_price_M,
-            output_price_M=output_price_M
-        )
-    return completion.choices[0].message.content
+# def immediately_query(query_str:str,model:str,max_tokens:int=4096,token_counter:TokenCounter=None) -> str:
+#     client = llm_client_hub.get_client(get_provider_name(model), async_=False)
+#     completion = client.chat.completions.create(
+#         model=get_model_name(model),
+#         messages=[
+#             {"role": "user", "content": query_str},
+#         ],
+#         max_completion_tokens=max_tokens
+#     )
+#     if token_counter:
+#         input_price_M, output_price_M = llm_client_hub.get_price_M(model)
+#         token_counter.update(
+#             input_tokens=completion.usage.input_tokens,
+#             output_tokens=completion.usage.output_tokens,
+#             input_price_M=input_price_M,
+#             output_price_M=output_price_M
+#         )
+#     return completion.choices[0].message.content
 
 llm_client_hub = LLMClientHub()
 
-def compute_llm_cost(response:LLMResponse,provider)->float:
-    input_price_M, output_price_M = llm_client_hub.get_price_M(get_model_provider_str(response.model, provider))
-    total_cost = (
-        response.prompt_tokens * input_price_M +
-        response.completion_tokens * output_price_M
-    )/1e6
+# def compute_llm_cost(response:LLMResponse,provider)->float:
+#     input_price_M, output_price_M = llm_client_hub.get_price_M(get_model_provider_str(response.model, provider))
+#     total_cost = (
+#         response.prompt_tokens * input_price_M +
+#         response.completion_tokens * output_price_M
+#     )/1e6
+#     return total_cost
+
+def compute_llm_cost(prompt_tokens:int, completion_tokens:int, model:str, is_batch=False) -> float:
+    input_price_M, output_price_M = llm_client_hub.get_price_M(model, is_batch=is_batch)
+    total_cost = (prompt_tokens * input_price_M + completion_tokens * output_price_M) / 1e6
     return total_cost
+
+
+class LLMTokenCounter:
+    def __init__(self):
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.total_price = 0
+    def reset(self):
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.total_price = 0
+    def get_summary_str(self)->str:
+        rtval = f"{format_number(self.input_tokens)}↑ {format_number(self.output_tokens)}↓"
+        if self.total_price > 0:
+            rtval += f" ${self.total_price:.2f}"
+        return rtval
+    def update(self, input_tokens, output_tokens, cost):
+        self.input_tokens += input_tokens
+        self.output_tokens += output_tokens
+        self.total_price += cost
+
+class LLMMessage(BaseModel):
+    role: str
+    content: str
+
+class LLMRequest(BaseModel):
+    custom_id: str
+    model: str # model@provider
+    messages: List[LLMMessage]
+    max_completion_tokens: int
+
+class LLMResponse(BaseModel):
+    custom_id: str
+    model: str # model@provider
+    message: LLMMessage
+    prompt_tokens: int
+    completion_tokens: int
+    cost: float
+
+async def get_llm_response_async(llm_request:LLMRequest, mock=False)->LLMResponse:
+    if not llm_client_hub.get_property(llm_request.model, 'chat_completions',False):
+        raise ValueError(f"Model {llm_request.model} does not support chat completions.")
+    if mock:
+        await asyncio.sleep(0.1)
+        return _get_dummy_llm_response(llm_request)
+    client:AsyncOpenAI = await llm_client_hub.get_client_async(get_provider_name(llm_request.model), async_client=True)
+    completion = await client.chat.completions.create(
+        model=get_model_name(llm_request.model),
+        messages=llm_request.messages,
+        max_completion_tokens=llm_request.max_completion_tokens,
+    )
+    return LLMResponse(
+        custom_id=llm_request.custom_id,
+        model=llm_request.model,
+        message=LLMMessage(
+            role=completion.choices[0].message.role,
+            content=completion.choices[0].message.content
+        ),
+        prompt_tokens=completion.usage.prompt_tokens,
+        completion_tokens=completion.usage.completion_tokens,
+        cost=compute_llm_cost(
+            prompt_tokens=completion.usage.prompt_tokens,
+            completion_tokens=completion.usage.completion_tokens,
+            model=llm_request.model,
+            is_batch=False
+        )
+    )
+
+def _get_dummy_llm_response(llm_request:LLMRequest) -> LLMResponse:
+    return LLMResponse(
+        custom_id=llm_request.custom_id,
+        model=llm_request.model,
+        message=LLMMessage(
+            role='assistant',
+            content=f"Dummy response for {llm_request.custom_id}"
+        ),
+        prompt_tokens=1,
+        completion_tokens=1,
+        cost=compute_llm_cost(
+            prompt_tokens=1,
+            completion_tokens=1,
+            model=llm_request.model,
+            is_batch=False
+        )
+    )
+
+
+# text = "This is a sample sentence for embedding lol."
+# model = "text-embedding-3-small"
+# response = openai.embeddings.create(
+#     model=model,
+#     input=text
+# )
+# embedding = response.data[0].embedding
+
+
+# class ConcurrentLLMEmbeddingCallBroker(ConcurrentAPICallBroker):
+#     def __init__(self, 
+#                  cache_path:str,
+#                  concurrency_limit:int=100,
+#                  rate_limit:int=100,
+#                  max_number_per_batch:int=None
+#     ):
+
+
+class LLMEmbeddingRequest(BaseModel):
+    custom_id: str
+    model: str # model@provider
+    input_text: str
+    dimensions: int|None
+    dtype: Literal['float32', 'float16']
+
+class LLMEmbeddingResponse(BaseModel):
+    custom_id: str
+    model: str # model@provider
+    embedding_base64: Dict
+    dimensions: int
+    dtype: Literal['float32', 'float16']
+    cost: float
+
+async def get_llm_embedding_async(llm_embedding_request:LLMEmbeddingRequest, mock=False) -> LLMEmbeddingResponse:
+    client:AsyncOpenAI = await llm_client_hub.get_client_async(get_provider_name(llm_embedding_request.model), async_client=True)
+    if not llm_client_hub.get_property(llm_embedding_request.model, 'embeddings', False):
+        raise ValueError(f"Model {llm_embedding_request.model} does not support embeddings.")
+    dimensions = llm_embedding_request.dimensions
+    client_dimensions = llm_client_hub.get_property(llm_embedding_request.model, 'embedding_dimension', 0)
+    client_custom_dimension = llm_client_hub.get_property(llm_embedding_request.model, 'custom_embedding_dimension', False)
+    if not client_custom_dimension and dimensions is not None and dimensions != client_dimensions:
+        raise ValueError(f"Model {llm_embedding_request.model} does not support custom embedding dimensions. Expected {client_dimensions}, got {dimensions}.")
+    
+    if mock:
+        await asyncio.sleep(0.1)
+        return get_dummy_llm_embedding_response(llm_embedding_request)
+
+    args = {}
+    args['model'] = get_model_name(llm_embedding_request.model)
+    args['input'] = llm_embedding_request.input_text
+
+    if dimensions != client_dimensions and client_custom_dimension:
+        args['dimensions'] = dimensions
+    
+    embedding = await client.embeddings.create(
+        **args
+    )
+
+    embedding_data = embedding.data[0].embedding
+    embedding_array = np.array(embedding_data, dtype=llm_embedding_request.dtype)
+    embedding_base64 = encode_ndarray(embedding_array)
+    cost = compute_llm_cost(
+        prompt_tokens=embedding.usage.prompt_tokens,
+        completion_tokens=0,
+        model=llm_embedding_request.model,
+        is_batch=False
+    )
+
+    return LLMEmbeddingResponse(
+        custom_id=llm_embedding_request.custom_id,
+        model=llm_embedding_request.model,
+        embedding_base64=embedding_base64,
+        dimensions=embedding_array.shape[0],
+        dtype=llm_embedding_request.dtype,
+        cost=cost
+    )
+
+def get_dummy_llm_embedding_response(llm_embedding_request:LLMEmbeddingRequest) -> LLMEmbeddingResponse:
+    dummy_embedding = np.ones(llm_embedding_request.dimensions, dtype=llm_embedding_request.dtype)
+    dummy_embedding_base64 = encode_ndarray(dummy_embedding)
+    return LLMEmbeddingResponse(
+        custom_id=llm_embedding_request.custom_id,
+        model=llm_embedding_request.model,
+        embedding_base64=dummy_embedding_base64,
+        dimensions=dummy_embedding.shape[0],
+        dtype=llm_embedding_request.dtype,
+        cost=compute_llm_cost(
+            prompt_tokens=1,
+            completion_tokens=0,
+            model=llm_embedding_request.model,
+            is_batch=False
+        )
+    )
+
+
+
+
+
+
+
+
 
 __all__ = [
     "LLMMessage",
     "LLMRequest",
     "LLMResponse",
+    "LLMEmbeddingRequest",
+    "LLMEmbeddingResponse",
+    "LLMTokenCounter",
     "llm_client_hub",
-    "immediately_query",
-    "get_provider_name",
-    "get_model_name",
-    "compute_llm_cost",
+    "get_llm_response_async",
+    "get_llm_embedding_async",
 ]

@@ -20,24 +20,6 @@ def format_number(val):
     elif val<1e12: return f'{val/1e9:.1f}B'
     else: return f'{val/1e12:.1f}T'
 
-class TokenCounter:
-    def __init__(self):
-        self.input_tokens = 0
-        self.output_tokens = 0
-        self.total_price = 0
-    def reset(self):
-        self.input_tokens = 0
-        self.output_tokens = 0
-        self.total_price = 0
-    def get_summary_str(self)->str:
-        rtval = f"{format_number(self.input_tokens)}↑ {format_number(self.output_tokens)}↓"
-        if self.total_price > 0:
-            rtval += f" ${self.total_price:.2f}"
-        return rtval
-    def update(self, input_tokens, output_tokens, input_price_M=0, output_price_M=0):
-        self.input_tokens += input_tokens
-        self.output_tokens += output_tokens
-        self.total_price += (input_tokens / 1e6) * input_price_M + (output_tokens / 1e6) * output_price_M
 
 def hash_text(text,*args):
     if args:
@@ -347,7 +329,6 @@ class ReprUtil:
 
 __all__ = [
     "format_number",
-    "TokenCounter",
     "hash_text",
     "hash_texts",
     "hash_json",

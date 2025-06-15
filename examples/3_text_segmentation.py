@@ -64,7 +64,7 @@ Please provide the line numbers marking the start of each scene in the text abov
 Your Output:
 """
 
-project = bf.ProjectFolder("text_segmentation", 1, 0, 3)
+project = bf.ProjectFolder("text_segmentation", 1, 0, 5)
 broker  = bf.brokers.ConcurrentLLMCallBroker(project["cache/llm_broker.jsonl"])
 model = "gpt-4o-mini@openai" # for demo only, need a better model for this task
 
