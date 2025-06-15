@@ -1,6 +1,6 @@
 from ..core import *
 from ..lib.llm_backend import LLMRequest, LLMMessage, LLMResponse, compute_llm_cost, get_provider_name
-from ..lib.prompt_maker import LLMPromptMaker
+from ..lib.prompt_maker import PromptMaker
 from ..lib.utils import get_format_keys, hash_texts, ReprUtil
 from ..brokers.concurrent_llm_call_broker import ConcurrentLLMCallBroker
 from ..core.broker import BrokerJobRequest, BrokerJobResponse, BrokerJobStatus
@@ -15,19 +15,19 @@ from abc import ABC, abstractmethod
 
 class GenerateLLMRequest(ApplyOp):
     "Generate a LLM query from a given prompt, formatting it with the entry data."
-    def __init__(self,user_prompt:str|LLMPromptMaker|None,model,
+    def __init__(self,user_prompt:str|PromptMaker|None,model,
                  max_completion_tokens=4096,
                  role="user",
                  output_key="llm_request",
-                 system_prompt:str|LLMPromptMaker|None=None,
+                 system_prompt:str|PromptMaker|None=None,
                  chat_history_key:str|bool|None=None, # if provided, will append the history to the prompt, if True, default to "chat_history"
-                 after_prompt:str|LLMPromptMaker|None=None, # if provided, will append the after_prompt after the history
+                 after_prompt:str|PromptMaker|None=None, # if provided, will append the after_prompt after the history
                  ):
         super().__init__()
         self.role = role
-        self.user_prompt:LLMPromptMaker = LLMPromptMaker.from_prompt(user_prompt)
-        self.system_prompt:LLMPromptMaker = LLMPromptMaker.from_prompt(system_prompt) if system_prompt else None
-        self.after_prompt:LLMPromptMaker = LLMPromptMaker.from_prompt(after_prompt) if after_prompt else None
+        self.user_prompt:PromptMaker = PromptMaker.from_prompt(user_prompt)
+        self.system_prompt:PromptMaker = PromptMaker.from_prompt(system_prompt) if system_prompt else None
+        self.after_prompt:PromptMaker = PromptMaker.from_prompt(after_prompt) if after_prompt else None
         if chat_history_key is True: 
             chat_history_key = "chat_history"
         self.chat_history_key = chat_history_key

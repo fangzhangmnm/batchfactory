@@ -6,3 +6,4 @@ openai
 pydantic
 pytest
 tqdm
+numpy

@@ -59,7 +59,8 @@ class CheckpointOp(BaseOp, ABC):
             if self._ledger.contains(record_idx) and record['rev'] <= self._ledger.get_one(record_idx)['rev']:
                 continue
             submit_records[record_idx] = record
-        self._ledger.update_many(submit_records)
+        if submit_records:
+            self._ledger.update_many(submit_records)
 
     def update_batch(self, batch:Dict[str,Entry]):
         """
@@ -73,7 +74,8 @@ class CheckpointOp(BaseOp, ABC):
             if self._ledger.contains(record_idx) and record['rev'] < self._ledger.get_one(record_idx)['rev']:
                 continue
             submit_records[record_idx] = record
-        self._ledger.update_many(submit_records,compact=True)
+        if submit_records:
+            self._ledger.update_many(submit_records)
     
     def _get_up_to_date_batch(self,input_batch:Dict[str,Entry])->Dict[str, Entry]:
         """
@@ -82,17 +84,7 @@ class CheckpointOp(BaseOp, ABC):
         2. have the latest revision in the cache, and its rev >= input_batch[idx].rev
         3. sorted in the order given by input_batch
         """
-        records = self._ledger.get_all()
         newest_entries = {}
-        # for record in records.values():
-        #     cached_entry = self._build_entry(record)
-        #     if cached_entry.idx not in input_batch:
-        #         continue
-        #     if cached_entry.rev < input_batch[cached_entry.idx].rev:
-        #         continue
-        #     if cached_entry.idx in newest_entries and cached_entry.rev < newest_entries[cached_entry.idx].rev:
-        #         continue
-        #     newest_entries[cached_entry.idx] = cached_entry
         for idx,input_entry in input_batch.items():
             if not self._contains(idx, input_batch[idx].rev):
                 continue

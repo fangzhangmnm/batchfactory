@@ -109,7 +109,14 @@ class _Ledger:
         with jsonlines.open(tmp_path, mode='w') as writer:
             for item in records.values():
                 writer.write(item)
-        os.replace(tmp_path, self.path)
+        for attempts in range(10):
+            try:
+                os.replace(tmp_path, self.path)
+                break
+            except OSError as e:
+                if attempts == 9:
+                    raise e
+                asyncio.sleep(0.1)
 
     async def _append_cache_async(self, records:Dict):
         text="".join(json.dumps(item, ensure_ascii=False) + "\n" for item in records.values())
@@ -162,6 +169,7 @@ def _deep_update(original:Dict, updates:Dict, delete_none:bool, _deepcopy:bool):
                 original[k] = deepcopy(v)
             else:
                 original[k] = v
+
 
 __all__ = [
 ]

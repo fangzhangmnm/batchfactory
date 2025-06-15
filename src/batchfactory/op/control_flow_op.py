@@ -226,11 +226,15 @@ Repeat._show_in_op_list = True
 
 
 
-def _explode_entry_by_lists(entry: Entry, 
+def _explode_entry_by_lists(
+                    entry: Entry, 
                     in_keys:List[str], out_keys:List[str],
                     master_idx_key: str | None = None,
-                    list_idx_key: str | None = None) -> Dict[str, Entry]:
+                    list_idx_key: str | None = None,
+                    keep_others: bool = None,
+                    ) -> Dict[str, Entry]:
     """Explode an entry to multiple entries based on the router."""
+    if keep_others is None: raise ValueError("keep_others must be specified")
     in_keys,out_keys = KeysUtil.make_keys_map(in_keys, out_keys)
     output_entries = {}
     in_lists = KeysUtil.read_dict(entry.data, in_keys)
@@ -238,33 +242,45 @@ def _explode_entry_by_lists(entry: Entry,
     in_tuples = CollectionsUtil.pivot_cascaded_list(in_lists)
     for list_idx,in_tuple in enumerate(in_tuples):
         new_data = {}
+        if keep_others:
+            for key in entry.data:
+                if key not in in_keys and key not in out_keys:
+                    new_data[key] = entry.data[key]
         KeysUtil.write_dict(new_data, out_keys, *in_tuple)
         if master_idx_key is not None:
             new_data[master_idx_key] = entry.idx
         if list_idx_key is not None:
             new_data[list_idx_key] = list_idx
         spawn_idx = hash_json(new_data)
-        spawn_entry = Entry(idx=spawn_idx, data=new_data)
+        spawn_entry = Entry(idx=spawn_idx, data=deepcopy(new_data))
         output_entries[spawn_idx] = spawn_entry
     return output_entries
 
 
 class ExplodeList(BatchOp):
-    "Explode an entry to multiple entries based on a list (or lists)."
+    """
+    Explode an entry to multiple entries based on a list (or lists).
+    if keep_others == True, copy all other fields expect the in_lists_keys
+    """
     def __init__(self, in_lists_keys="list", out_lists_keys="item",
                  master_idx_key="master_idx", list_idx_key="list_idx",
+                 keep_others=True,
                  barrier_level=1):
         super().__init__(consume_all_batch=True, barrier_level=barrier_level)
         self.in_keys, self.out_keys = KeysUtil.make_keys_map(in_lists_keys, out_lists_keys)
         self.master_idx_key = master_idx_key
         self.list_idx_key = list_idx_key
+        self.keep_others = keep_others
     def _args_repr(self): return ReprUtil.repr_dict_from_tuples(self.in_keys, self.out_keys)
     def update_batch(self, batch: Dict[str, Entry]) -> Dict[str, Entry]:
         output_entries = {}
         for entry in batch.values():
-            output_entries.update(_explode_entry_by_lists(entry, self.in_keys, self.out_keys,
-                                                 master_idx_key=self.master_idx_key,
-                                                 list_idx_key=self.list_idx_key))
+            output_entries.update(_explode_entry_by_lists(entry, 
+                                                self.in_keys, self.out_keys,
+                                                master_idx_key=self.master_idx_key,
+                                                list_idx_key=self.list_idx_key,
+                                                keep_others=self.keep_others
+                                                ))
         return output_entries
 
 
@@ -286,8 +302,10 @@ class SpawnFromList(SpawnOp):
     def spawn_entries(self, entry: Entry) -> Dict[str, Entry]:
         """Entry->{new_idx:new_Entry}"""
         output_entries = _explode_entry_by_lists(entry, self.in_lists_keys, self.out_items_keys,
-                                         master_idx_key=self.master_idx_key,
-                                         list_idx_key=self.list_idx_key)
+                                        master_idx_key=self.master_idx_key,
+                                        list_idx_key=self.list_idx_key,
+                                        keep_others=False 
+                                        )
         if self.spawn_idx_list_key is not None:
             entry.data[self.spawn_idx_list_key] = list(output_entries.keys())
         return output_entries

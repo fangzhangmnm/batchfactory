@@ -28,6 +28,30 @@ class LLMResponse(BaseModel):
     prompt_tokens: int
     completion_tokens: int
 
+
+
+
+
+
+# text = "This is a sample sentence for embedding lol."
+# model = "text-embedding-3-small"
+# response = openai.embeddings.create(
+#     model=model,
+#     input=text
+# )
+# embedding = response.data[0].embedding
+
+
+# class ConcurrentLLMEmbeddingCallBroker(ConcurrentAPICallBroker):
+#     def __init__(self, 
+#                  cache_path:str,
+#                  concurrency_limit:int=100,
+#                  rate_limit:int=100,
+#                  max_number_per_batch:int=None
+#     ):
+
+
+
 def get_provider_name(model:str) -> str:
     return model.split('@', 1)[-1]
 def get_model_name(model:str) -> str:
@@ -54,9 +78,9 @@ class LLMClientHub:
         if (provider,async_) not in self.clients:
             self.clients[(provider, async_)] = self._create_client(provider, async_)
         return self.clients[(provider, async_)]
-    async def get_client_async(self, provider:str, async_:bool=True) -> Union[OpenAI, AsyncOpenAI]:
+    async def get_client_async(self, provider:str, async_client:bool=True) -> Union[OpenAI, AsyncOpenAI]:
         async with self.lock:
-            return self.get_client(provider, async_=async_)
+            return self.get_client(provider, async_=async_client)
     def get_price_M(self, model:str):
         if model not in model_desc:
             raise ValueError(f"Model {model} is not supported.")

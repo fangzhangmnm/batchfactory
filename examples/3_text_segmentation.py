@@ -92,15 +92,23 @@ g |= MapField(lambda filename, list_idx: [filename, f"Chapter {list_idx+1}"], ["
 g |= WriteMarkdownEntries(project["out/chapterized"],filename_key="filename")
 
 
-
-
-def get_alice(path):
+def download_if_missing(url, path, binary=False, headers=None):
     import os, requests
     if not os.path.exists(path):
-        r = requests.get("https://www.gutenberg.org/files/11/11-0.txt")
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(r.text)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        mode = "wb" if binary else "w"
+        with open(path, mode, encoding=None if binary else "utf-8") as f:
+            f.write(response.content if binary else response.text)
+    mode = "rb" if binary else "r"
+    with open(path, mode, encoding=None if binary else "utf-8") as f:
+        return f.read()
+
+def download_alice(path="./data/examples/alice.txt"):
+    url = "https://www.gutenberg.org/files/11/11-0.txt"
+    return download_if_missing(url, path, binary=False)
 
 
-get_alice(project["in/books/Alice in Wonderland.txt"])
+download_alice(project["in/books/Alice in Wonderland.txt"])
 g.execute(dispatch_brokers=True)

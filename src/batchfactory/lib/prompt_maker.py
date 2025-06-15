@@ -3,24 +3,24 @@ from typing import Dict, Any
 from .utils import ReprUtil, get_format_keys
 
 
-class LLMPromptMaker(ABC):
+class PromptMaker(ABC):
     PROMPT = "{text}"
     @abstractmethod
     def make_prompt(self, data:Dict[str, Any]) -> str:
         "self.PROMPT.format(**{k: data[k] for k in get_format_keys(self.PROMPT)})"
         pass
     @classmethod
-    def from_prompt(cls, prompt:"str|LLMPromptMaker") -> "LLMPromptMaker":
+    def from_prompt(cls, prompt:"str|PromptMaker") -> "PromptMaker":
         if isinstance(prompt, str):
-            return BasicLLMPromptMaker(prompt)
-        elif isinstance(prompt, LLMPromptMaker):
+            return BasicPromptMaker(prompt)
+        elif isinstance(prompt, PromptMaker):
             return prompt
         else:
             raise ValueError(f"Unsupported prompt type: {type(prompt)}. Must be str or LLMPromptMaker.")
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__}>"
 
-class BasicLLMPromptMaker(LLMPromptMaker):
+class BasicPromptMaker(PromptMaker):
     def __init__(self, prompt:str):
         self.PROMPT = prompt
     def make_prompt(self, data:Dict[str, Any]) -> str:
@@ -30,6 +30,6 @@ class BasicLLMPromptMaker(LLMPromptMaker):
 
 
 __all__=[
-    "LLMPromptMaker",
-    "BasicLLMPromptMaker",
+    "PromptMaker",
+    "BasicPromptMaker",
 ]

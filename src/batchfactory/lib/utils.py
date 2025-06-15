@@ -25,11 +25,11 @@ class TokenCounter:
         self.input_tokens = 0
         self.output_tokens = 0
         self.total_price = 0
-    def reset_counter(self):
+    def reset(self):
         self.input_tokens = 0
         self.output_tokens = 0
         self.total_price = 0
-    def summary(self)->str:
+    def get_summary_str(self)->str:
         rtval = f"{format_number(self.input_tokens)}↑ {format_number(self.output_tokens)}↓"
         if self.total_price > 0:
             rtval += f" ${self.total_price:.2f}"

@@ -3,7 +3,7 @@ ARCHIVE
 data
 oldref
 test_notebooks
-journal.md
+journals
 dist
 README_NEW.md
 .pytest_cache
