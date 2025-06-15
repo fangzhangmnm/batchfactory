@@ -2,7 +2,7 @@ import batchfactory as bf
 from batchfactory.op import *
 
 project = bf.ProjectFolder("roleplay", 1, 0, 5)
-broker  = bf.brokers.ConcurrentLLMCallBroker(project["cache/llm_broker.jsonl"])
+broker  = bf.brokers.LLMBroker(project["cache/llm_broker.jsonl"])
 
 def Character(character_key, user_prompt):
     def func(command,identifier):
@@ -13,11 +13,11 @@ def Character(character_key, user_prompt):
             after_prompt=command,
         )
         seg |= TransformCharacterDialogueForLLM(character_key=character_key)
-        seg |= ConcurrentLLMCall(project[f"cache/llm_call_{identifier}.jsonl"], broker, failure_behavior="retry")
+        seg |= CallLLM(project[f"cache/llm_call_{identifier}.jsonl"], broker, failure_behavior="retry")
         seg |= ExtractResponseText()
         seg |= MapField(remove_speaker_tag, "text")
         seg |= UpdateChatHistory(character_key=character_key)
-        seg |= ExtractResponseMeta() | CleanupLLMData()
+        seg |= CleanupLLMData()
         return seg
     return func
 

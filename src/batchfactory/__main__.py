@@ -36,6 +36,8 @@ def generate_docs(project_root: Path):
                                     get_code_demo(project_root / "examples" / "3_text_segmentation.py"))
     readme_str = readme_str.replace("<!-- ROLEPLAY_EXAMPLE_PLACEHOLDER -->",
                                     get_code_demo(project_root / "examples" / "2_roleplay.py"))
+    readme_str = readme_str.replace("<!-- EMBEDDING_EXAMPLE_PLACEHOLDER -->",
+                                    get_code_demo(project_root / "examples" / "5_embeddings.py"))
 
     readme_path = project_root / "README.md"
     with open(readme_path, "w", encoding="utf-8") as readme_file:

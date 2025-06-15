@@ -1,9 +1,9 @@
-from batchfactory.brokers import ConcurrentLLMCallBroker
+from batchfactory.brokers import LLMBroker
 from batchfactory import LLMRequest, LLMMessage, LLMResponse, BrokerJobRequest, BrokerJobStatus
 
 def test_concurrent_llm_call_broker(tmp_path):
     cache_path = tmp_path / "concurrent_llm_call_broker.jsonl"
-    broker = ConcurrentLLMCallBroker(cache_path=cache_path,
+    broker = LLMBroker(cache_path=cache_path,
                                      concurrency_limit=10,
                                      rate_limit=5,
                                      max_number_per_batch=100)
@@ -36,7 +36,7 @@ def test_concurrent_llm_call_broker(tmp_path):
         assert response.response_object.message.content.startswith("Dummy response for"), f"Unexpected response content for {job_idx}."
     # Try Recovering from cache
     del broker
-    broker = ConcurrentLLMCallBroker(cache_path=cache_path,
+    broker = LLMBroker(cache_path=cache_path,
                                      concurrency_limit=10,
                                      rate_limit=5,
                                      max_number_per_batch=100)

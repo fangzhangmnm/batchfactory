@@ -65,12 +65,12 @@ Your Output:
 """
 
 project = bf.ProjectFolder("text_segmentation", 1, 0, 5)
-broker  = bf.brokers.ConcurrentLLMCallBroker(project["cache/llm_broker.jsonl"])
+broker  = bf.brokers.LLMBroker(project["cache/llm_broker.jsonl"])
 model = "gpt-4o-mini@openai" # for demo only, need a better model for this task
 
 def AskLLM(prompt, output_key, identifier):
     g = GenerateLLMRequest(prompt, model=model)
-    g |= ConcurrentLLMCall(project[f"cache/llm_call_{identifier}.jsonl"], broker, failure_behavior="retry")
+    g |= CallLLM(project[f"cache/llm_call_{identifier}.jsonl"], broker, failure_behavior="retry")
     g |= ExtractResponseText(output_key=output_key)
     g |= MapField(remove_cot, output_key)
     g |= CleanupLLMData()

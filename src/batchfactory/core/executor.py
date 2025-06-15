@@ -85,11 +85,15 @@ class OpGraphExecutor:
         """
         max_emitted_barrier_level = None
         for node in self.nodes:
-            if options.max_barrier_level is not None and node.barrier_level > options.max_barrier_level:
-                continue
-            did_emit = self._pump_node(node, options)
-            if did_emit:
-                max_emitted_barrier_level = max(max_emitted_barrier_level or float('-inf'), node.barrier_level)
+            try:
+                if options.max_barrier_level is not None and node.barrier_level > options.max_barrier_level:
+                    continue
+                did_emit = self._pump_node(node, options)
+                if did_emit:
+                    max_emitted_barrier_level = max(max_emitted_barrier_level or float('-inf'), node.barrier_level)
+            except Exception as e:
+                print(f"Exception while pumping node {node}: {e}")
+                raise e
         return max_emitted_barrier_level
     def clear_output_cache(self):
         self.output_revs.clear()

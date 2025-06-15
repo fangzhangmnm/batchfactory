@@ -2,7 +2,7 @@
 
 Composable, cache‑aware pipelines for **parallel LLM workflows**, API calls, and dataset generation.
 
-> **Status — `v0.3` alpha.** More robust and battle-tested on small projects. Still evolving quickly — APIs may shift.
+> **Status — `v0.4` beta.** More robust and battle-tested on small projects. Still evolving quickly — APIs may shift.
 
 ![BatchFactory cover](https://raw.githubusercontent.com/fangzhangmnm/batchfactory/main/docs/assets/batchfactory.jpg)
 
@@ -25,18 +25,18 @@ pip install --upgrade batchfactory  # grab the newest patch
 import batchfactory as bf
 from batchfactory.op import *
 
-project = bf.ProjectFolder("quickstart", 1, 0, 1)
-broker  = bf.brokers.ConcurrentLLMCallBroker(project["cache/llm_broker.jsonl"])
+project = bf.ProjectFolder("quickstart", 1, 0, 5)
+broker  = bf.brokers.LLMBroker(project["cache/llm_broker.jsonl"])
 
 PROMPT = """
 Write a poem about {keyword}.
 """
 
 g = bf.Graph()
-g |= ReadMarkdownLines("./demo_data/greek_mythology_stories.md").to_graph()
+g |= ReadMarkdownLines("./demo_data/greek_mythology_stories.md")
 g |= Shuffle(42) | TakeFirstN(5)
 g |= GenerateLLMRequest(PROMPT, model="gpt-4o-mini@openai")
-g |= ConcurrentLLMCall(project["cache/llm_call.jsonl"],broker)
+g |= CallLLM(project["cache/llm_call.jsonl"],broker)
 g |= ExtractResponseText()
 g |= MapField(lambda headings,keyword: headings+[keyword], ["headings", "keyword"], "headings")
 g |= WriteMarkdownEntries(project["out/poems.md"])
@@ -48,14 +48,26 @@ Run it twice – everything after the first run is served from the on‑disk led
 
 ---
 
-## Why BatchFactory?  **Three killer moves**
+## 🚀 Why BatchFactory?
 
-| 🏭 Mass data distillation & cleanup | 🎭 Multi-agent, multi-round workflows | 🌲 Hierarchical spawning (`ListParallel`) |
-|---|---|---|
-| Chain `GenerateLLMRequest → ConcurrentLLMCall → ExtractResponseText` after keyword / file sources to **mass-produce**, **filter**, or **polish** datasets—millions of Q&A rows, code explanations, translation pairs—with built-in caching & cost tracking. | With `Repeat`, `If`, `While`, and chat helpers, you can script complex role-based collaborations—e.g. *Junior Translator → Senior Editor → QA → Revision*—and run full multi-agent, multi-turn simulations in just a few lines of code. Ideal for workflows inspired by **TransAgents**, **MATT**, or **ChatDev**. | `ListParallel` breaks a complex item into fine-grained subtasks, runs them **concurrently**, then reunites the outputs—ideal for **long-text summarisation**, **RAG chunking**, or any tree-structured pipeline. |
+BatchFactory lets you build **cache‑aware, composable pipelines** for LLM calls, embeddings, and data transforms—so you can go from idea to production with zero boilerplate.
 
+* **Composable Ops** – chain 30‑plus ready‑made Ops (and your own) using simple pipe syntax.
+* **Transparent Caching & Cost Tracking** – every expensive call is hashed, cached, resumable, and audited.
+* **Pluggable Brokers** – swap in LLM, embedding, search, or human‑in‑the‑loop brokers at will.
+* **Self‑contained datasets** – pack arrays, images, audio—any data—into each entry so your entire workflow travels as a single, copy‑anywhere `.jsonl` file.
+* **Ready‑to‑Copy Demos** – learn the idioms fast with five concise example pipelines.
 
 ---
+
+## 🧩 Three killer moves
+
+| 🏭 Mass data distillation & cleanup | 🎭 Multi‑agent, multi‑round workflows | 🌲 Hierarchical spawning (`ListParallel`) |
+|---|---|---|
+| Chain `GenerateLLMRequest → CallLLM → ExtractResponseText` after keyword / file sources to **mass‑produce**, **filter**, or **polish** datasets—millions of Q&A rows, code explanations, translation pairs—with built‑in caching & cost tracking. | With `Repeat`, `If`, `While`, and chat helpers, you can script complex role‑based collaborations—e.g. *Junior Translator → Senior Editor → QA → Revision*—and run full multi‑agent, multi‑turn simulations in just a few lines of code. Ideal for workflows inspired by **TransAgents**, **MATT**, or **ChatDev**. | `ListParallel` breaks a complex item into fine‑grained subtasks, runs them **concurrently**, then reunites the outputs—perfect for **long‑text summarisation**, **RAG chunking**, or any tree‑structured pipeline. |
+
+---
+
 
 ### Spawn snippet (Text Segmentation)
 
@@ -66,7 +78,7 @@ spawn_chain |= MapField(text_to_integer_list, "labels")
 g | ListParallel(spawn_chain, "text_segments", "text", "labels", "labels")
 g |= MapField(flatten_list, "labels")
 g |= MapField(split_text_by_line_labels, ["text", "labels"], "text_segments")
-g |= ExplodeList(["directory", "text_segments"], ["directory", "text"])
+g |= ExplodeList(["filename","text_segments"],["filename","text"])
 ```
 
 ---
@@ -91,6 +103,20 @@ g |= MapField(lambda headings,keyword: headings+[keyword], ["headings", "keyword
 g |= WriteMarkdownEntries(project["out/roleplay.md"])
 ```
 
+---
+
+### Text Embedding snippet
+
+```python
+embedding_broker  = bf.brokers.LLMEmbeddingBroker(project["cache/embedding_broker.jsonl"])
+g |= GenerateLLMEmbeddingRequest("keyword", model="text-embedding-3-small@openai")
+g |= CallLLMEmbedding(project["cache/embedding_call.jsonl"], embedding_broker)
+g |= ExtractResponseEmbedding()
+g |= DecodeBase64Embedding()
+```
+
+---
+
 ## Core concepts (one‑liner view)
 
 
@@ -108,26 +134,13 @@ g |= WriteMarkdownEntries(project["out/roleplay.md"])
 
 ## 📚 Example Gallery
 
-| ✨ Example                 | Demonstrates                                        |
-| ------------------------- | --------------------------------------------------- |
-| **1\_quickstart**         | Linear LLM transform with caching and auto‑resuming |
-| **2\_roleplay**           | Multi-agent, multi-turn roleplay using chat agents  |
-| **3\_text\_segmentation** | Divide‑and‑conquer pipeline for text segmentation   |
-
----
-
-## ⚙️ Broker & Cache Highlights
-
-* Every expensive call is **hashed** to a unique `job_idx` — repeated prompts are automatically **deduplicated**.
-* Control how failures propagate with `BrokerFailureBehavior = RETRY | STAY | EMIT`.
-* On restart, `execute()` resumes from cached state and dispatches **only missing or incomplete jobs** — no manual checkpoints needed.
-
----
-
-## 🛣️ Roadmap → v0.4
-
-* Native **vector store** and **semantic search** nodes
-* Streamlined **cost tracking** and **progress reporting**
+| ✨ Example               | Shows                                         |
+|-------------------------|-----------------------------------------------|
+| **1_quickstart**        | Linear LLM transform with caching & auto‑resume |
+| **2_roleplay**          | Multi‑agent, multi‑turn roleplay with chat agents |
+| **3_text_segmentation** | Divide‑and‑conquer pipeline for text segmentation |
+| **4_prompt_management** | Prompt + data templating in one place          |
+| **5_embeddings**        | Embeddings + cosine similarity workflow        |
 
 ---
 
@@ -137,38 +150,42 @@ g |= WriteMarkdownEntries(project["out/roleplay.md"])
 |-----------|-------------|
 | `Apply` | Apply a function to modify the entry data. |
 | `BeginIf` | Switch to port 1 if criteria is met. See `If` function for usage. |
+| `CallLLM` | Dispatch concurrent API calls for LLM — may induce API billing from external providers. |
+| `CallLLMEmbedding` | Dispatch concurrent API calls for embedding models — may induce API billing from external providers. |
 | `ChatHistoryToText` | Format the chat history into a single text. |
 | `CheckPoint` | A no-op checkpoint that saves inputs to the cache, and resumes from the cache. |
-| `CleanupLLMData` | Clean up internal fields used for LLM processing, such as llm_request, llm_response, and status. |
+| `CleanupLLMData` | Clean up internal fields for LLM processing, such as `llm_request`, `llm_response`, `status`, and `job_idx`. |
+| `CleanupLLMEmbeddingData` | Clean up the internal fields for LLM processing, such as `embedding_request`, `embedding_response`, `status`, `job_idx`. |
 | `Collect` | Collect data from port 1, merge to 0. |
 | `CollectAllToList` | Collect items from spawn entries on port 1 and merge them into a list (or lists if multiple items provided). |
-| `ConcurrentLLMCall` | Dispatch concurrent LLM API calls — may induce API billing from external providers. |
+| `DecodeBase64Embedding` | Decode the base64 encoded embedding into python array. |
 | `EndIf` | Join entries from either port 0 or port 1. See `If` function for usage. |
 | `ExplodeList` | Explode an entry to multiple entries based on a list (or lists). |
-| `ExtractResponseMeta` | Extract metadata from the LLM response like model name and accumulated cost. |
+| `ExtractResponseEmbedding` | Extract the embedding object (base64 encoded numpy array) from the LLM response and store it to entry data. |
 | `ExtractResponseText` | Extract the text content from the LLM response and store it to entry data. |
 | `Filter` | Filter entries based on a custom criteria function. |
 | `FilterFailedEntries` | Drop entries that have a status "failed". |
 | `FilterMissingFields` | Drop entries that do not have specific fields. |
 | `FromList` | Create entries from a list of dictionaries or objects, each representing an entry. |
-| `GenerateLLMRequest` | Generate a LLM query from a given prompt, formatting it with the entry data. |
+| `GenerateLLMEmbeddingRequest` | Generate LLM embedding requests from input_key. |
+| `GenerateLLMRequest` | Generate LLM requests from a given prompt, formatting it with the entry data. |
 | `If` | Switch to true_chain if criteria is met, otherwise stay on false_chain. |
 | `ListParallel` | Spawn entries from a list (or lists), process them in parallel, and collect them back to a list (or lists). |
 | `MapField` | Map a function to specific field(s) in the entry data. |
 | `PrintEntry` | Print the first n entries information. |
 | `PrintField` | Print the specific field(s) from the first n entries. |
 | `PrintTotalCost` | Print the total accumulated API cost for the output batch. |
-| `ReadJsonl` | Read JSON Lines files. |
+| `ReadJsonl` | Read JSON Lines files. (also supports json array) |
 | `ReadMarkdownEntries` | Read Markdown files and extract nonempty text under every headings with markdown headings as a list. |
 | `ReadMarkdownLines` | Read Markdown files and extract non-empty lines as keyword with markdown headings as a list. |
-| `ReadTxtFolder` | Collect all txt files in a folder. |
-| `RemoveField` | Remove fields from the entry data. |
-| `RenameField` | Rename fields in the entry data. |
-| `Repeat` | Repeat the loop body for a fixed number of rounds. |
 
 
 | Operation | Description |
 |-----------|-------------|
+| `ReadTxtFolder` | Collect all txt files in a folder. |
+| `RemoveField` | Remove fields from the entry data. |
+| `RenameField` | Rename fields in the entry data. |
+| `Repeat` | Repeat the loop body for a fixed number of rounds. |
 | `RepeatNode` | Repeat the loop body for a fixed number of rounds. See `Repeat` function for usage. |
 | `Replicate` | Replicate an entry to all output ports. |
 | `SetField` | Set fields in the entry data to specific values. |

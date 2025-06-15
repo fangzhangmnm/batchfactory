@@ -1,5 +1,6 @@
 import batchfactory as bf
 from batchfactory.op import *
+import numpy as np
 
 import nest_asyncio; nest_asyncio.apply()  # For Jupyter and pytest compatibility
 
@@ -14,7 +15,7 @@ def compare(results, reference, sort_key):
 
 def test_llm_call(tmp_path):
     project = bf.ProjectFolder("test_llm_call", 1, 0, 0, data_dir=tmp_path)
-    broker = bf.brokers.ConcurrentLLMCallBroker(project["cache/llm_broker.jsonl"])
+    broker = bf.brokers.LLMBroker(project["cache/llm_broker.jsonl"])
 
     test_data = [
         {"keyword": "test1", "text": "This is a test passage test1.", "headings": ["Test 1"]},
@@ -28,7 +29,7 @@ def test_llm_call(tmp_path):
             'Rewrite the passage from "{headings}" titled "{keyword}" as a four-line English poem.',
             model="gpt-4o-mini@openai",
         )
-    g |= ConcurrentLLMCall(project["cache/llm_call1.jsonl"], broker)
+    g |= CallLLM(project["cache/llm_call1.jsonl"], broker)
     g |= ExtractResponseText()
     def restore_text_from_dummy_response(data):
         assert data["text"]
@@ -38,6 +39,40 @@ def test_llm_call(tmp_path):
     print(g)
 
     compare(results, test_data, "keyword")
+
+def test_embedding_call(tmp_path):
+    project = bf.ProjectFolder("test_embedding_call", 1, 0, 0, data_dir=tmp_path)
+    embedding_broker = bf.brokers.LLMEmbeddingBroker(project["cache/llm_embedding_broker.jsonl"])
+
+    test_data = [
+        {"keyword": "test1", "text": "Peter ate an apple."},
+        {"keyword": "test2", "text": "Large language model is a type of AI."},
+        {"keyword": "test3", "text": "Hey, how are you doing today?"},
+    ]
+    g = bf.Graph()
+    g |= FromList(test_data)
+    g |= GenerateLLMEmbeddingRequest("text", model="text-embedding-3-small@openai")
+    g |= CallLLMEmbedding(project["cache/llm_embedding_call1.jsonl"], embedding_broker)
+    g |= ExtractResponseEmbedding()
+    def check_embedding(data,dim=1536):
+        assert data["embedding"]
+        embedding_vector:np.ndarray = bf.base64_utils.decode_ndarray(data["embedding"])
+        assert isinstance(embedding_vector, np.ndarray)
+        assert embedding_vector.shape == (dim,), f"Expected embedding shape {(dim,)}, got {embedding_vector.shape}"
+    g |= Apply(check_embedding)
+    g |= DecodeBase64Embedding("embedding")
+    def check_embedding_2(data,dim=1536):
+        assert "embedding" in data, "Expected 'embedding' key in data"
+        assert isinstance(data["embedding"], list)
+        assert isinstance(data["embedding"][0], float)
+        assert len(data["embedding"]) == dim, f"Expected embedding length {dim}, got {len(data['embedding'])}"
+    g |= Apply(check_embedding_2)
+    results = g.execute(dispatch_brokers=True, mock=True)
+    print(g)
+
+
+
+
 
 
 
@@ -102,7 +137,7 @@ def test_markdown_entries(tmp_path):
 
 def test_rpg_loop(tmp_path):
     project = bf.ProjectFolder("test_rpg_loop", 1, 0, 0, data_dir=tmp_path)
-    broker = bf.brokers.ConcurrentLLMCallBroker(project["cache/llm_broker.jsonl"])
+    broker = bf.brokers.LLMBroker(project["cache/llm_broker.jsonl"])
 
     test_data = [
         {"headings": "Greek Mythology", "keyword": "Blah1"},
@@ -122,10 +157,11 @@ def test_rpg_loop(tmp_path):
                 after_prompt=command,
             )
             seg |= TransformCharacterDialogueForLLM(character_key=character_key)
-            seg |= ConcurrentLLMCall(project[f"cache/llm_call_{identifier}.jsonl"], broker, failure_behavior="retry")
+            seg |= CallLLM(project[f"cache/llm_call_{identifier}.jsonl"], broker, failure_behavior="retry")
             seg |= ExtractResponseText()
             seg |= UpdateChatHistory(character_key=character_key)
-            seg |= ExtractResponseMeta() | CleanupLLMData()
+            # seg |= ExtractResponseMeta() 
+            seg |= CleanupLLMData()
             return seg
         return func
     

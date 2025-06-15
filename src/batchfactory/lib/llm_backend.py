@@ -19,7 +19,6 @@ def get_model_name(model:str) -> str:
 def get_model_provider_str(model,provider):
     return model+'@'+provider if '@' not in model else model
 
-
 class LLMClientHub:
     def __init__(self):
         self.clients = {}
@@ -54,6 +53,11 @@ class LLMClientHub:
         if model not in model_desc:
             raise ValueError(f"Model {model} is not supported.")
         return model_desc[model].get(property_name, default)
+    def is_chat_completion_model(self, model:str) -> bool:
+        return self.get_property(model, 'chat_completions', False)
+    def is_embedding_model(self, model:str) -> bool:
+        return self.get_property(model, 'embeddings', False)
+
     def list_all_models(self, endpoint:str=None, provider:str=None) -> List[str]:
         models = []
         for model, desc in model_desc.items():
@@ -64,41 +68,12 @@ class LLMClientHub:
             models.append(model)
         return models
 
-
-# def immediately_query(query_str:str,model:str,max_tokens:int=4096,token_counter:TokenCounter=None) -> str:
-#     client = llm_client_hub.get_client(get_provider_name(model), async_=False)
-#     completion = client.chat.completions.create(
-#         model=get_model_name(model),
-#         messages=[
-#             {"role": "user", "content": query_str},
-#         ],
-#         max_completion_tokens=max_tokens
-#     )
-#     if token_counter:
-#         input_price_M, output_price_M = llm_client_hub.get_price_M(model)
-#         token_counter.update(
-#             input_tokens=completion.usage.input_tokens,
-#             output_tokens=completion.usage.output_tokens,
-#             input_price_M=input_price_M,
-#             output_price_M=output_price_M
-#         )
-#     return completion.choices[0].message.content
-
 llm_client_hub = LLMClientHub()
-
-# def compute_llm_cost(response:LLMResponse,provider)->float:
-#     input_price_M, output_price_M = llm_client_hub.get_price_M(get_model_provider_str(response.model, provider))
-#     total_cost = (
-#         response.prompt_tokens * input_price_M +
-#         response.completion_tokens * output_price_M
-#     )/1e6
-#     return total_cost
 
 def compute_llm_cost(prompt_tokens:int, completion_tokens:int, model:str, is_batch=False) -> float:
     input_price_M, output_price_M = llm_client_hub.get_price_M(model, is_batch=is_batch)
     total_cost = (prompt_tokens * input_price_M + completion_tokens * output_price_M) / 1e6
     return total_cost
-
 
 class LLMTokenCounter:
     def __init__(self):
@@ -184,25 +159,6 @@ def _get_dummy_llm_response(llm_request:LLMRequest) -> LLMResponse:
         )
     )
 
-
-# text = "This is a sample sentence for embedding lol."
-# model = "text-embedding-3-small"
-# response = openai.embeddings.create(
-#     model=model,
-#     input=text
-# )
-# embedding = response.data[0].embedding
-
-
-# class ConcurrentLLMEmbeddingCallBroker(ConcurrentAPICallBroker):
-#     def __init__(self, 
-#                  cache_path:str,
-#                  concurrency_limit:int=100,
-#                  rate_limit:int=100,
-#                  max_number_per_batch:int=None
-#     ):
-
-
 class LLMEmbeddingRequest(BaseModel):
     custom_id: str
     model: str # model@provider
@@ -216,6 +172,7 @@ class LLMEmbeddingResponse(BaseModel):
     embedding_base64: Dict
     dimensions: int
     dtype: Literal['float32', 'float16']
+    prompt_tokens: int
     cost: float
 
 async def get_llm_embedding_async(llm_embedding_request:LLMEmbeddingRequest, mock=False) -> LLMEmbeddingResponse:
@@ -259,11 +216,13 @@ async def get_llm_embedding_async(llm_embedding_request:LLMEmbeddingRequest, moc
         embedding_base64=embedding_base64,
         dimensions=embedding_array.shape[0],
         dtype=llm_embedding_request.dtype,
+        prompt_tokens=embedding.usage.prompt_tokens,
         cost=cost
     )
 
 def get_dummy_llm_embedding_response(llm_embedding_request:LLMEmbeddingRequest) -> LLMEmbeddingResponse:
-    dummy_embedding = np.ones(llm_embedding_request.dimensions, dtype=llm_embedding_request.dtype)
+    dimensions = llm_embedding_request.dimensions or llm_client_hub.get_property(llm_embedding_request.model, 'embedding_dimension', 1536)
+    dummy_embedding = np.ones(dimensions, dtype=llm_embedding_request.dtype)
     dummy_embedding_base64 = encode_ndarray(dummy_embedding)
     return LLMEmbeddingResponse(
         custom_id=llm_embedding_request.custom_id,
@@ -271,6 +230,7 @@ def get_dummy_llm_embedding_response(llm_embedding_request:LLMEmbeddingRequest) 
         embedding_base64=dummy_embedding_base64,
         dimensions=dummy_embedding.shape[0],
         dtype=llm_embedding_request.dtype,
+        prompt_tokens=1,
         cost=compute_llm_cost(
             prompt_tokens=1,
             completion_tokens=0,
@@ -278,14 +238,6 @@ def get_dummy_llm_embedding_response(llm_embedding_request:LLMEmbeddingRequest) 
             is_batch=False
         )
     )
-
-
-
-
-
-
-
-
 
 __all__ = [
     "LLMMessage",
