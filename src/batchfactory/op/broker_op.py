@@ -23,6 +23,7 @@ class BrokerOp(CheckpointOp,ABC):
     def __init__(self,
                     cache_path: str,
                     broker: Broker,
+                    *,
                     input_key: str,
                     output_key: str,
                     status_key: str = "status",
@@ -31,7 +32,7 @@ class BrokerOp(CheckpointOp,ABC):
                     failure_behavior:BrokerFailureBehavior = BrokerFailureBehavior.STAY,
                     barrier_level: int = 1
                     ):
-            super().__init__(cache_path, keep_all_rev, barrier_level)
+            super().__init__(cache_path, keep_all_rev=keep_all_rev, barrier_level=barrier_level)
             self.broker = broker
             self.input_key = input_key
             self.output_key = output_key

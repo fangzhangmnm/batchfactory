@@ -47,6 +47,20 @@ BatchFactory lets you build **cache‑aware, composable pipelines** for LLM call
 
 ---
 
+## Core concepts (one‑liner view)
+
+
+| Term          | Story in one sentence                                                                                                                              |               |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| **Entry**     | Tiny record with immutable `idx`, mutable `data`, auto‑incrementing `rev`.                                                                         |               |
+| **Op**        | Atomic node; compose with `\|`or`wire()`. |
+| **Graph**     | A chain of `Op`s wired together — supports flexible pipelines and subgraphs.                                                                       |               |
+| **Executor**  | Internal engine that tracks graph state, manages batching, resumption, and broker dispatch. Created automatically when you call `graph.execute()`. |               |
+| **Broker**    | Pluggable engine for expensive or async jobs (LLM APIs, search, human labelers).                                                                   |               |
+| **Ledger**    | Append‑only JSONL backing each broker & graph — enables instant resume and transparent caching.                                                    |               |
+| **execute()** | High-level command that runs the graph: creates an `Executor`, resumes from cache, and dispatches brokers as needed.                               |               |
+
+---
 
 ### Spawn snippet (Text Segmentation)
 
@@ -66,21 +80,6 @@ BatchFactory lets you build **cache‑aware, composable pipelines** for LLM call
 
 ---
 
-## Core concepts (one‑liner view)
-
-
-| Term          | Story in one sentence                                                                                                                              |               |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| **Entry**     | Tiny record with immutable `idx`, mutable `data`, auto‑incrementing `rev`.                                                                         |               |
-| **Op**        | Atomic node; compose with `|`or`wire()`. |
-| **Graph**     | A chain of `Op`s wired together — supports flexible pipelines and subgraphs.                                                                       |               |
-| **Executor**  | Internal engine that tracks graph state, manages batching, resumption, and broker dispatch. Created automatically when you call `graph.execute()`. |               |
-| **Broker**    | Pluggable engine for expensive or async jobs (LLM APIs, search, human labelers).                                                                   |               |
-| **Ledger**    | Append‑only JSONL backing each broker & graph — enables instant resume and transparent caching.                                                    |               |
-| **execute()** | High-level command that runs the graph: creates an `Executor`, resumes from cache, and dispatches brokers as needed.                               |               |
-
----
-
 ## 📚 Example Gallery
 
 | ✨ Example               | Shows                                         |
@@ -95,7 +94,7 @@ BatchFactory lets you build **cache‑aware, composable pipelines** for LLM call
 
 ### Available Ops
 
-<!-- ALL_OPS_PLACEHOLDER -->
+<!-- HIGHLIGHTED_OPS_PLACEHOLDER -->
 
 ---
 

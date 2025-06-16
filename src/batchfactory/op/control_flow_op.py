@@ -1,6 +1,7 @@
 from ..core.base_op import *
 from ..core.entry import Entry
 from ..lib.utils import hash_json, KeysUtil, CollectionsUtil, ReprUtil
+from ._registery import show_in_op_list
 
 
 from typing import List, Tuple, Dict, Callable, TYPE_CHECKING
@@ -10,9 +11,10 @@ from abc import ABC, abstractmethod
 if TYPE_CHECKING:
     from ..core.op_graph import Graph
 
+@show_in_op_list
 class Replicate(SplitOp):
     "Replicate an entry to all output ports."
-    def __init__(self, n_out_ports:int = 2, replica_idx_key:str|None="replica_idx"):
+    def __init__(self, n_out_ports:int = 2,*, replica_idx_key:str|None="replica_idx"):
         super().__init__(n_out_ports=n_out_ports)
         self.replica_idx_key = replica_idx_key
     def split(self, entry: Entry) -> Dict[int, Entry]:
@@ -23,23 +25,22 @@ class Replicate(SplitOp):
                 new_entry.data[self.replica_idx_key] = i
             output_entries[i] = new_entry
         return output_entries
-    
-class Collect(MergeOp):
-    "Collect data from port 1, merge to 0."
+
+@show_in_op_list
+class CollectField(RouterOp):
+    "Collect field(s) from port 1, merge to 0."
     def __init__(self, *keys):
         """
-        - collects data from in_port 1
-        - `Collect('key1', 'key2')` 
+        - `PortField(1, 0, 'key1', 'key2')` 
         """
-        super().__init__(n_in_ports=2, wait_all=True)
+        super().__init__(n_in_ports=2, n_out_ports=2, wait_all=True)
         self.keys = KeysUtil.make_keys(*keys, allow_empty=False)
     def _args_repr(self): return ReprUtil.repr_keys(self.keys)
-    def merge(self, entries: Dict[int, Entry]) -> Entry:
+    def route(self, bundle: Dict[int, Entry]) -> Dict[int, Entry]:
         for key in self.keys:
-            if key in entries[1].data:
-                entries[0].data[key] = entries[1].data[key]
-        return entries[0]
-
+            if key in bundle[1].data:
+                bundle[0].data[key] = bundle[1].data[key]
+        return {0: bundle[0], 1: bundle[1]}
 
 class BeginIfOp(SplitOp,ABC):
     "Switch to port 1 if criteria is met."
@@ -83,6 +84,7 @@ class EndIf(MergeOp):
         # should not increase rev here
         return entry
     
+@show_in_op_list
 def If(criteria:Callable, true_chain:'Graph|BaseOp|None', false_chain=None) -> 'Graph':
     """
     Switch to true_chain if criteria is met, otherwise stay on false_chain.
@@ -101,7 +103,6 @@ def If(criteria:Callable, true_chain:'Graph|BaseOp|None', false_chain=None) -> '
     else:
         main_chain.wire(begin, end, 1, 1)
     return main_chain
-If._show_in_op_list = True
 
 class LoopOp(RouterOp,ABC):
     """
@@ -163,7 +164,8 @@ class WhileNode(LoopOp):
             return self._criteria(*self.criteria_keys.read_keys(entry.data))
         else:
             return self._criteria(entry.data)
-        
+       
+@show_in_op_list 
 def While(criteria:Callable, body_chain:'Graph|BaseOp') -> 'Graph':
     """
     Executes the loop body while the criteria is met.
@@ -175,11 +177,10 @@ def While(criteria:Callable, body_chain:'Graph|BaseOp') -> 'Graph':
     main_chain.wire(loop_nome, body_chain, 1, 0)
     main_chain.wire(body_chain, loop_nome, 0, 1)
     return main_chain
-While._show_in_op_list = True
 
 class RepeatNode(LoopOp):
     "Repeat the loop body for a fixed number of rounds. See `Repeat` function for usage."
-    def __init__(self, max_rounds=None, rounds_key="rounds", max_rounds_key=None, initial_value:int|None=0):
+    def __init__(self, max_rounds=None, *,rounds_key="rounds", max_rounds_key=None, initial_value:int|None=0):
         super().__init__()
         self.rounds_key = rounds_key
         self.initial_value:int|None = initial_value
@@ -202,9 +203,11 @@ class RepeatNode(LoopOp):
         # note we use pre_increment instead of post_increment here
         entry.data[self.rounds_key] += 1
 
-
+@show_in_op_list
 def Repeat(body_chain:'Graph|BaseOp', 
-           max_rounds=None, rounds_key="rounds", max_rounds_key=None, initial_value:int|None=0):
+           max_rounds=None, 
+           *,
+           rounds_key="rounds", max_rounds_key=None, initial_value:int|None=0):
     """
     Repeat the loop body for a fixed number of rounds.
     - `Repeat(loop_body,5,"rounds")`
@@ -221,14 +224,11 @@ def Repeat(body_chain:'Graph|BaseOp',
     main_chain.wire(node, body_chain, 1, 0)
     main_chain.wire(body_chain, node, 0, 1)
     return main_chain
-Repeat._show_in_op_list = True
-
-
-
 
 def _explode_entry_by_lists(
                     entry: Entry, 
                     in_keys:List[str], out_keys:List[str],
+                    *,
                     master_idx_key: str | None = None,
                     list_idx_key: str | None = None,
                     keep_others: bool = None,
@@ -256,13 +256,14 @@ def _explode_entry_by_lists(
         output_entries[spawn_idx] = spawn_entry
     return output_entries
 
-
+@show_in_op_list
 class ExplodeList(BatchOp):
     """
     Explode an entry to multiple entries based on a list (or lists).
     if keep_others == True, copy all other fields expect the in_lists_keys
     """
     def __init__(self, in_lists_keys="list", out_lists_keys="item",
+                 *,
                  master_idx_key="master_idx", list_idx_key="list_idx",
                  keep_others=True,
                  barrier_level=1):
@@ -283,15 +284,16 @@ class ExplodeList(BatchOp):
                                                 ))
         return output_entries
 
-
+@show_in_op_list
 class SpawnFromList(SpawnOp):
     "Spawn multiple spawn entries to port 1 based on a list (or lists)."
     def __init__(self,
-                 in_lists_keys="list",
-                 out_items_keys="item",
-                 master_idx_key="master_idx",
-                 list_idx_key="list_idx",
-                 spawn_idx_list_key="spawn_idx_list",
+                in_lists_keys="list",
+                out_items_keys="item",
+                *,
+                master_idx_key="master_idx",
+                list_idx_key="list_idx",
+                spawn_idx_list_key="spawn_idx_list",
     ):
         super().__init__()
         self.in_lists_keys, self.out_items_keys = KeysUtil.make_keys_map(in_lists_keys, out_items_keys)
@@ -310,11 +312,13 @@ class SpawnFromList(SpawnOp):
             entry.data[self.spawn_idx_list_key] = list(output_entries.keys())
         return output_entries
             
+@show_in_op_list
 class CollectAllToList(CollectAllOp):
     "Collect items from spawn entries on port 1 and merge them into a list (or lists if multiple items provided)."
     def __init__(self, 
                 in_items_keys="item",
                 out_lists_keys="list",
+                *,
                 master_idx_key="master_idx",
                 list_idx_key="list_idx",
                 spawn_idx_list_key="spawn_idx_list",
@@ -339,11 +343,13 @@ class CollectAllToList(CollectAllOp):
             zipped_output_lists.append(KeysUtil.read_dict(spawn_bundle[spawn_idx].data, self.in_items_keys))
         KeysUtil.write_dict(master_entry.data, self.out_lists_keys, *zip(*zipped_output_lists))
         
+@show_in_op_list
 def ListParallel(spawn_body:'Graph|BaseOp',
         in_lists_keys:str="list",
         out_items_keys:str|None="item",
         in_items_keys:str|None=None,
         out_lists_keys:str|None=None,
+        *,
         master_idx_key="master_idx",
         list_idx_key="list_idx",
         spawn_idx_list_key="spawn_idx_list",
@@ -387,7 +393,7 @@ def _get_field_or_value(data,field,value):
 
 __all__ = [
     "Replicate",
-    "Collect",
+    "CollectField",
     "BeginIf",
     "EndIf",
     "If",

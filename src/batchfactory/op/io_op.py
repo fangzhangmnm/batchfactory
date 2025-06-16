@@ -3,6 +3,7 @@ from ..core.entry import Entry
 from ..lib.utils import _to_list_2, hash_text, hash_texts, hash_json, KeysUtil, ReprUtil, to_glob
 from ..lib.markdown_utils import iter_markdown_lines, iter_markdown_entries, write_markdown_lines, write_markdown_entries, build_sort_key_from_headings, escape_markdown_headings
 from .common_op import Sort
+from ._registery import show_in_op_list
 
 from typing import Union, List, Dict, Any, Literal, Iterator, Tuple
 import re
@@ -17,10 +18,10 @@ from dataclasses import asdict
 from copy import deepcopy
 from pathlib import Path
 
-
 class ReaderOp(SourceOp, ABC):
     def __init__(self,
                     keys: List[str]|None,
+                    *,
                     offset: int = 0,
                     max_count: int = None,
                     fire_once: bool = True
@@ -45,13 +46,13 @@ class ReaderOp(SourceOp, ABC):
             entries[idx] = entry
         return entries
 
-
-
+@show_in_op_list
 class ReadJsonl(ReaderOp):
     """Read JSON Lines files. (also supports json array)"""
     def __init__(self, 
                  glob_str: str|Path, 
                  keys: List[str]=None,
+                 *,
                  idx_key: str = None,
                  hash_keys: Union[str, List[str]] = None,
                  offset: int = 0,
@@ -90,6 +91,7 @@ class ReadJsonl(ReaderOp):
         else:
             return hash_json(json_obj)
 
+@show_in_op_list
 class WriteJsonl(OutputOp):
     """Write entries to a JSON Lines file."""
     def __init__(self, path: str, 
@@ -135,11 +137,13 @@ def remove_markdown_headings(text: str) -> str:
     text= re.sub(r'^#+\s*', '', text, flags=re.MULTILINE)
     return text
 
+@show_in_op_list
 class ReadTxtFolder(ReaderOp):
     "Collect all txt files in a folder."
     def __init__(self, 
                 glob_str: str|Path,
                 text_key: str = "text",
+                *,
                 filename_key = "filename",
                 remove_extension_in_filename = True,
                 offset: int = 0,
@@ -167,11 +171,13 @@ class ReadTxtFolder(ReaderOp):
                 record[self.filename_key] = filename
             yield idx, record
 
+@show_in_op_list
 class WriteTxtFolder(OutputOp):
     "Write entries to a folder as txt files."
     def __init__(self, 
                 directory: str, 
                 text_key: str = "text",
+                *,
                 filename_key: str = "filename",
     ):
         super().__init__()
@@ -190,10 +196,12 @@ class WriteTxtFolder(OutputOp):
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(text)
 
+@show_in_op_list
 class ReadMarkdownLines(ReaderOp):
     "Read Markdown files and extract non-empty lines as keyword with markdown headings as a list."
     def __init__(self,
                 glob_str:str|Path,
+                *,
                 keyword_key = "keyword",
                 headings_key = "headings",
                 filename_key = "filename",
@@ -224,6 +232,7 @@ class ReadMarkdownLines(ReaderOp):
                     record[self.filename_key] = filename
                 yield idx, record
 
+@show_in_op_list
 class WriteMarkdownLines(OutputOp):
     """
     Write keyword lists to Markdown file(s) as lines, with heading hierarchy defined by headings:list.
@@ -231,6 +240,7 @@ class WriteMarkdownLines(OutputOp):
     """
     def __init__(self, 
                 path_or_folder: str, 
+                *,
                 keyword_key = "keyword",
                 headings_key = "headings",
                 filename_key = None,
@@ -273,10 +283,12 @@ class WriteMarkdownLines(OutputOp):
                 path = os.path.join(self.path_or_folder, filename)
                 self._output_single_file(path, entries)
 
+@show_in_op_list
 class ReadMarkdownEntries(ReaderOp):
     "Read Markdown files and extract nonempty text under every headings with markdown headings as a list."
     def __init__(self, 
                 glob_str: str|Path,
+                *,
                 output_key = "text",
                 headings_key = "headings",
                 filename_key = "filename",
@@ -314,6 +326,7 @@ class ReadMarkdownEntries(ReaderOp):
                     record[self.filename_key] = filename
                 yield idx, record
 
+@show_in_op_list
 class WriteMarkdownEntries(OutputOp):
     """
     Write entries to Markdown file(s), with heading hierarchy defined by headings and text as content.
@@ -321,6 +334,7 @@ class WriteMarkdownEntries(OutputOp):
     """
     def __init__(self, 
                  path_or_folder: str, 
+                *,
                  output_key = "text",
                  headings_key = "headings",
                  filename_key = None,
@@ -361,11 +375,13 @@ class WriteMarkdownEntries(OutputOp):
                 path = os.path.join(self.path_or_folder, filename)
                 self._output_single_file(path, entries)
 
+@show_in_op_list
 class SortMarkdownEntries(Sort):
     """
     Sort Markdown entries based on headings and (optional) keyword.
     """
     def __init__(self,
+                *,
                 headings_key: str = "headings",
                 keyword_key: str = None,
                 barrier_level = 1,
@@ -384,14 +400,15 @@ class SortMarkdownEntries(Sort):
         else:
             return build_sort_key_from_headings(headings)
 
-
+@show_in_op_list
 class FromList(SourceOp):
     "Create entries from a list of dictionaries or objects, each representing an entry."
     def __init__(self,
-                 input_list: List[Dict]|List[Any],
-                 output_key: str = None,
-                 fire_once: bool = True,
-                 ):
+                input_list: List[Dict]|List[Any],
+                output_key: str = None,
+                *,
+                fire_once: bool = True,
+                ):
         super().__init__(fire_once=fire_once)
         self.input_list = input_list
         self.output_key = output_key
@@ -419,6 +436,7 @@ class FromList(SourceOp):
         else:
             raise ValueError(f"Unsupported object type for entry creation: {type(obj)}")
 
+@show_in_op_list
 class ToList(OutputOp):
     "Output a list of specific field(s) from entries."
     def __init__(self,*output_keys):
@@ -442,9 +460,10 @@ class ToList(OutputOp):
     def get_output(self) -> List[Dict|Any]:
         return list(self._output_entries.values())
 
+@show_in_op_list
 class PrintEntry(OutputOp):
     "Print the first n entries information."
-    def __init__(self,first_n=None):
+    def __init__(self,*,first_n=None):
         super().__init__()
         self.first_n = first_n
     def output_batch(self, batch: Dict[str, Entry]) -> None:
@@ -455,9 +474,10 @@ class PrintEntry(OutputOp):
             print()
         print()
 
+@show_in_op_list
 class PrintField(OutputOp):
     "Print the specific field(s) from the first n entries."
-    def __init__(self, field="text", first_n=5):
+    def __init__(self, field="text",*, first_n=5):
         super().__init__()
         self.field = field
         self.first_n = first_n

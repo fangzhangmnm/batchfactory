@@ -4,9 +4,11 @@ from typing import Union, List, Any, Tuple, Iterator, Dict, Set, Literal
 import os
 
 from ..core.entry import Entry
+from ..core.project_folder import ProjectFolder
 from ..core.ledger import _Ledger
 from ..core.base_op import BaseOp, PumpOptions, PumpOutput
 from ..lib.utils import ReprUtil
+from ._registery import show_in_op_list
 
 
 class CheckpointOp(BaseOp, ABC):
@@ -14,7 +16,9 @@ class CheckpointOp(BaseOp, ABC):
     - constantly save its output to a cache
     - consume all inputs, including the one being invalidated by the newer version in the cache
     """
-    def __init__(self,cache_path: str,keep_all_rev:bool,barrier_level:int):
+    def __init__(self,cache_path:str|None,*,keep_all_rev:bool,barrier_level:int):
+        if cache_path is None:
+            cache_path = ProjectFolder.get_current().generate_op_path(self)
         if barrier_level < 1: raise ValueError("barrier_level of CheckpointOp must be at least 1")
         super().__init__(n_in_ports=1, n_out_ports=1, barrier_level=barrier_level)
         self._ledger = _Ledger(cache_path)
@@ -141,12 +145,13 @@ class CheckpointOp(BaseOp, ABC):
             record['idx'],_ = record['idx'].rsplit('_',1)
         return Entry(**record)
 
+@show_in_op_list
 class CheckPoint(CheckpointOp):
     """
     A no-op checkpoint that saves inputs to the cache, and resumes from the cache.
     """
-    def __init__(self, cache_path: str, keep_all_rev: bool = True, barrier_level: int = 1):
-        super().__init__(cache_path, keep_all_rev, barrier_level)
+    def __init__(self, cache_path: str = None,*, keep_all_rev: bool = True, barrier_level: int = 1):
+        super().__init__(cache_path, keep_all_rev=keep_all_rev, barrier_level=barrier_level)
     def prepare_input(self, entry: Entry) -> None:
         pass
     def process_cached_batch(self, cached_newest_batch: Dict[str, Entry], options: PumpOptions) -> None:

@@ -1,5 +1,5 @@
 
-from .op import _generate_all_ops_md_str
+from .op._registery import generate_ops_md_str
 import argparse, sys, os
 from pathlib import Path
 
@@ -27,8 +27,8 @@ def get_code_demo(file_path: Path) -> str:
 
 def generate_docs(project_root: Path):
     readme_str = read_file(project_root / "docs" / "README_template.md")
-    readme_str = readme_str.replace("<!-- ALL_OPS_PLACEHOLDER -->", 
-                                    _generate_all_ops_md_str())
+    readme_str = readme_str.replace("<!-- HIGHLIGHTED_OPS_PLACEHOLDER -->", 
+                                    generate_ops_md_str())
 
     readme_str = readme_str.replace("<!-- QUICK_START_EXAMPLE_PLACEHOLDER -->", 
                                     get_code_demo(project_root / "examples" / "1_quickstart.py"))

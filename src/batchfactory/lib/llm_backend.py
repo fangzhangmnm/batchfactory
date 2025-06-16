@@ -11,6 +11,7 @@ import asyncio
 from asyncio import Lock
 import numpy as np
 from .base64_utils import encode_ndarray
+from enum import Enum
 
 def get_provider_name(model:str) -> str:
     return model.split('@', 1)[-1]

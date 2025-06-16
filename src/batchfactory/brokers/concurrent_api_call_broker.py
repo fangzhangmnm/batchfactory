@@ -20,6 +20,7 @@ class ConcurrentAPICallBroker(ImmediateBroker, ABC):
                 cache_path: str,
                 request_cls: type,
                 response_cls: type = None,
+                *,
                 concurrency_limit: int = 100,
                 rate_limit: int = 100,
                 max_number_per_batch: int = None

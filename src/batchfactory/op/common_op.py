@@ -1,10 +1,12 @@
 from ..core.base_op import *
 from ..lib.utils import KeysUtil, ReprUtil
 from ..core import BrokerJobStatus, Entry
+from ._registery import show_in_op_list
 
 from typing import List,Dict, Callable, Any
 import random
 
+@show_in_op_list
 class Filter(FilterOp):
     """
     Filter entries based on a custom criteria function.
@@ -22,15 +24,17 @@ class Filter(FilterOp):
             return self._criteria(entry.data)
     def _args_repr(self): return ReprUtil.repr_lambda(self._criteria)
         
+@show_in_op_list
 class FilterFailedEntries(FilterOp):
     """Drop entries that have a status "failed"."""
-    def __init__(self, status_key="status",consume_rejected=False):
+    def __init__(self,*,status_key="status",consume_rejected=False):
         super().__init__(consume_rejected=consume_rejected)
         self.status_key = status_key
     def _args_repr(self): return ReprUtil.repr_str(self.status_key)
     def criteria(self, entry):
         return BrokerJobStatus(entry.data[self.status_key]) != BrokerJobStatus.FAILED
 
+@show_in_op_list
 class FilterMissingFields(FilterOp):
     "Drop entries that do not have specific fields."
     def __init__(self, *keys, consume_rejected=False, allow_None=True):
@@ -44,6 +48,7 @@ class FilterMissingFields(FilterOp):
         else:
             return all(entry.data.get(field) is not None for field in self.keys)
     
+@show_in_op_list
 class Apply(ApplyOp):
     """
     Apply a function to modify the entry data.
@@ -56,6 +61,7 @@ class Apply(ApplyOp):
     def update(self, entry:Entry)->None:
         self.func(entry.data)
 
+@show_in_op_list
 class MapField(ApplyOp):
     """
     Map a function to specific field(s) in the entry data.
@@ -73,6 +79,7 @@ class MapField(ApplyOp):
         out_values = KeysUtil.extract_out_list_from_func_return(out_values, self.out_keys)
         KeysUtil.write_dict(entry.data, self.out_keys, *out_values)
 
+@show_in_op_list
 class SetField(ApplyOp):
     """
     Set fields in the entry data to specific values.
@@ -86,6 +93,7 @@ class SetField(ApplyOp):
         for field, value in self.data.items():
             entry.data[field] = value
 
+@show_in_op_list
 class RemoveField(ApplyOp):
     """
     Remove fields from the entry data.
@@ -99,6 +107,7 @@ class RemoveField(ApplyOp):
         for field in self.keys:
             entry.data.pop(field, None)
             
+@show_in_op_list
 class RenameField(ApplyOp):
     """
     Rename fields in the entry data.
@@ -116,9 +125,10 @@ class RenameField(ApplyOp):
             else:
                 entry.data[k2] = entry.data.pop(k1, None)
 
+@show_in_op_list
 class Shuffle(BatchOp):
     """Shuffle the entries in a batch randomly."""
-    def __init__(self, seed, barrier_level = 1):
+    def __init__(self,*, seed, barrier_level = 1):
         super().__init__(consume_all_batch=True, barrier_level=barrier_level)
         self.seed = seed
     def update_batch(self, entries: Dict[str, Entry]) -> Dict[str, Entry]:
@@ -128,9 +138,10 @@ class Shuffle(BatchOp):
         entries = {entry.idx: entry for entry in entries_list}
         return entries
     
+@show_in_op_list
 class TakeFirstN(BatchOp):
     """Takes the first N entries from the batch. discards the rest."""
-    def __init__(self, n: int, barrier_level = 1):
+    def __init__(self, n: int,*, barrier_level = 1):
         super().__init__(consume_all_batch=True, barrier_level=barrier_level)
         self.n = n
     def _args_repr(self): return f"n={self.n}"
@@ -140,6 +151,7 @@ class TakeFirstN(BatchOp):
         entries = {entry.idx: entry for entry in entries_list}
         return entries
     
+@show_in_op_list
 class Sort(BatchOp):
     """Sort the entries in a batch"""
     def __init__(self, *keys, reverse=False, custom_func: Callable[[Dict],Any] = None, barrier_level = 1):

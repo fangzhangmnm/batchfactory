@@ -18,7 +18,7 @@ class PumpOptions(NamedTuple):
     max_barrier_level:int|None=None
 
 class BaseOp(ABC):
-    def __init__(self,n_in_ports:int,n_out_ports:int,barrier_level:int):
+    def __init__(self,*,n_in_ports:int,n_out_ports:int,barrier_level:int):
         self.n_in_ports= n_in_ports
         self.n_out_ports = n_out_ports
         self.barrier_level = barrier_level # if True, wait for all other ops of lower barrier level finish before pumping
@@ -70,7 +70,7 @@ class ApplyOp(BaseOp, ABC):
 
 class FilterOp(BaseOp, ABC):
     "Drops some entries, keeps others unchanged."
-    def __init__(self,consume_rejected:bool):
+    def __init__(self,*,consume_rejected:bool):
         super().__init__(n_in_ports=1, n_out_ports=1, barrier_level=0)
         self.consume_rejected = consume_rejected
     @abstractmethod
@@ -89,7 +89,7 @@ class FilterOp(BaseOp, ABC):
     
 class RouterOp(BaseOp, ABC):
     "Merges entries of same idx from N ports, then duplicate or route them to M out ports."
-    def __init__(self, n_in_ports: int, n_out_ports: int, wait_all:bool):
+    def __init__(self,*, n_in_ports: int, n_out_ports: int, wait_all:bool):
         super().__init__(n_in_ports=n_in_ports, n_out_ports=n_out_ports, barrier_level=0)
         self.wait_all = wait_all
     @abstractmethod
@@ -117,7 +117,7 @@ class RouterOp(BaseOp, ABC):
 
 class MergeOp(RouterOp, ABC):
     "Merges entries of same idx from N ports to 1"
-    def __init__(self,n_in_ports:int,wait_all:bool):
+    def __init__(self,*,n_in_ports:int,wait_all:bool):
         super().__init__(n_in_ports=n_in_ports, n_out_ports=1, wait_all=wait_all)
     @abstractmethod
     def merge(self, bundle: Dict[int,Entry]) -> Entry:
@@ -128,7 +128,7 @@ class MergeOp(RouterOp, ABC):
     
 class SplitOp(RouterOp, ABC):
     "Splits an entry to multiple out_ports"
-    def __init__(self, n_out_ports: int):
+    def __init__(self,*, n_out_ports: int):
         super().__init__(n_in_ports=1, n_out_ports=n_out_ports, wait_all=True)
     @abstractmethod
     def split(self, entry: Entry) -> Dict[int, Entry]:
@@ -139,7 +139,7 @@ class SplitOp(RouterOp, ABC):
 
 class SourceOp(BaseOp, ABC):
     """	Generates entries (reads datasets, dice rolls, etc)."""
-    def __init__(self,fire_once:bool):
+    def __init__(self,*,fire_once:bool):
         super().__init__(n_in_ports=0, n_out_ports=1, barrier_level=0)
         self.fire_once = fire_once
     @abstractmethod
@@ -159,7 +159,7 @@ class SourceOp(BaseOp, ABC):
     
 class BatchOp(BaseOp, ABC):
     "Batch-level shuffle/crosstalk, might drop or insert entries of different idxs."
-    def __init__(self,consume_all_batch:bool, barrier_level:int):
+    def __init__(self,*,consume_all_batch:bool, barrier_level:int):
         "consume_all_batch: consume all entries or only ones output by update_batch"
         if barrier_level<1: raise ValueError("barrier_level of BatchOp must be at least 1")
         super().__init__(n_in_ports=1, n_out_ports=1, barrier_level=barrier_level)
@@ -181,7 +181,7 @@ class BatchOp(BaseOp, ABC):
     
 class OutputOp(BatchOp, ABC):
     "Outputs a batch to disk/console/etc, then sends it to the next node unmodified."
-    def __init__(self,barrier_level=1):
+    def __init__(self,*,barrier_level=1):
         super().__init__(consume_all_batch=True, barrier_level=barrier_level)
     @abstractmethod
     def output_batch(self, batch: Dict[str, Entry]) -> None:
@@ -213,7 +213,7 @@ class SpawnOp(BaseOp, ABC):
 
 class CollectAllOp(BaseOp, ABC):
     "Update master entry from spawn entries collected from in_port 1. Wait if spawn entries are not ready."
-    def __init__(self, consume_spawns:bool):
+    def __init__(self,*,consume_spawns:bool):
         n_out_ports = 1 if consume_spawns else 2
         super().__init__(n_in_ports=2, n_out_ports=n_out_ports, barrier_level=0)
         self.consume_spawns = consume_spawns

@@ -9,6 +9,7 @@ from tqdm.auto import tqdm
 class LLMBroker(ConcurrentAPICallBroker):
     def __init__(self, 
                     cache_path:str,
+                    *,
                     concurrency_limit:int=100,
                     rate_limit:int=100,
                     max_number_per_batch:int=None

@@ -6,14 +6,16 @@ from ..lib.utils import get_format_keys, hash_texts, ReprUtil
 from ..brokers.llm_embedding_broker import LLMEmbeddingBroker
 from ..core.broker import BrokerJobStatus
 from .common_op import RemoveField
-from ..lib.utils import _to_list_2, _pick_field_or_value_strict
 from .broker_op import BrokerOp, BrokerFailureBehavior
+from ..core.project_folder import ProjectFolder
+from ._registery import show_in_op_list
 from typing import List, Dict, NamedTuple, Set, Tuple, Any, Literal
-import numpy as np
 
 class GenerateLLMEmbeddingRequest(ApplyOp):
     "Generate LLM embedding requests from input_key."
-    def __init__(self,input_key,model,
+    def __init__(self,input_key,
+                    *,
+                    model,
                     output_key="embedding_request",
                     dimensions:int|None=None,
                     dtype:Literal['float32', 'float16'] = 'float32',
@@ -54,20 +56,21 @@ class ExtractResponseEmbedding(ApplyOp):
         embedding_response: LLMEmbeddingResponse = LLMEmbeddingResponse.model_validate(embedding_response)
         entry.data[self.output_key] = embedding_response.embedding_base64
 
-
 class CallLLMEmbedding(BrokerOp):
     "Dispatch concurrent API calls for embedding models — may induce API billing from external providers."
     def __init__(self,
-                    cache_path: str,
-                    broker: LLMEmbeddingBroker,
-                    input_key="embedding_request",
-                    output_key="embedding_response",
-                    status_key="status",
-                    job_idx_key="job_idx",
-                    keep_all_rev: bool = True,
-                    failure_behavior: BrokerFailureBehavior = BrokerFailureBehavior.STAY,
-                    barrier_level: int = 1,
-                    ):
+                *,
+                cache_path: str=None,
+                broker: LLMEmbeddingBroker=None,
+                input_key="embedding_request",
+                output_key="embedding_response",
+                status_key="status",
+                job_idx_key="job_idx",
+                keep_all_rev: bool = True,
+                failure_behavior: BrokerFailureBehavior = BrokerFailureBehavior.STAY,
+                barrier_level: int = 1,
+                ):
+        if broker is None: broker = ProjectFolder.get_current().get_default_broker(LLMEmbeddingBroker)
         if not isinstance(broker, LLMEmbeddingBroker): raise ValueError(f"Expected broker to be of type LLMEmbeddingBroker, got {type(broker)}")
         super().__init__(
             cache_path=cache_path,
@@ -113,6 +116,45 @@ class DecodeBase64Embedding(ApplyOp):
         embedding = decode_ndarray(embedding_base64).tolist()
         entry.data[self.output_key] = embedding
 
+@show_in_op_list(highlight=True)
+def EmbedText(
+    input_key: str,
+    *,
+    model: str,
+    output_key: str = "embedding",
+    cache_path: str = None,
+    broker: LLMEmbeddingBroker = None,
+    dimensions: int | None = None,
+    dtype: Literal['float32', 'float16'] = 'float32',
+    output_format: Literal['base64', 'list'] = 'base64',
+):
+    "Get the embedding vector for the input text."
+    g = GenerateLLMEmbeddingRequest(
+        input_key=input_key,
+        model=model,
+        output_key="embedding_request",
+        dimensions=dimensions,
+        dtype=dtype,
+    )
+    g |= CallLLMEmbedding(
+        cache_path=cache_path,
+        broker=broker,
+        input_key="embedding_request",
+        output_key="embedding_response",
+        status_key="status",
+        job_idx_key="job_idx",
+    )
+    g |= ExtractResponseEmbedding(
+        input_key="embedding_response",
+        output_key=output_key,
+    )
+    g |= CleanupLLMEmbeddingData()
+    if output_format == 'list':
+        g |= DecodeBase64Embedding(
+            input_key=output_key,
+            output_key=output_key,
+        )
+    return g
 
 __all__ = [
     "GenerateLLMEmbeddingRequest",
@@ -120,6 +162,7 @@ __all__ = [
     "CallLLMEmbedding",
     "CleanupLLMEmbeddingData",
     "DecodeBase64Embedding",
+    "EmbedText",
 ]
 
 

@@ -2,22 +2,13 @@ import batchfactory as bf
 from batchfactory.op import *
 import numpy as np
 
-project = bf.ProjectFolder("embeddings", 1, 0, 0)
-
-PROMPT = """
-Write a poem about {keyword}.
-"""
-
-g = bf.Graph()
-g |= ReadMarkdownLines("./demo_data/greek_mythology_stories.md")
-# START_EXAMPLE_EXPORT
-embedding_broker  = bf.brokers.LLMEmbeddingBroker(project["cache/embedding_broker.jsonl"])
-g |= GenerateLLMEmbeddingRequest("keyword", model="text-embedding-3-small@openai")
-g |= CallLLMEmbedding(project["cache/embedding_call.jsonl"], embedding_broker)
-g |= ExtractResponseEmbedding()
-g |= DecodeBase64Embedding()
-# END_EXAMPLE_EXPORT
-g |= (out:= ToList("embedding","keyword"))
+with bf.ProjectFolder("embeddings", 1, 0, 0) as project:
+    g = bf.Graph()
+    g |= ReadMarkdownLines("./demo_data/greek_mythology_stories.md")
+    # START_EXAMPLE_EXPORT
+    g |= EmbedText("keyword", model="text-embedding-3-small@openai", output_format="list")
+    # END_EXAMPLE_EXPORT
+    g |= (out:= ToList("embedding","keyword"))
 
 g.execute(dispatch_brokers=True)
 

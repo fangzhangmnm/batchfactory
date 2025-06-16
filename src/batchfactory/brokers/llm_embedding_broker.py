@@ -10,10 +10,11 @@ from tqdm.auto import tqdm
 
 class LLMEmbeddingBroker(ConcurrentAPICallBroker):
     def __init__(self, 
-                 cache_path:str,
-                 concurrency_limit:int=100,
-                 rate_limit:int=100,
-                 max_number_per_batch:int=None
+                cache_path:str,
+                *,
+                concurrency_limit:int=100,
+                rate_limit:int=100,
+                max_number_per_batch:int=None
     ):
         super().__init__(cache_path=cache_path,
                          request_cls=LLMEmbeddingRequest,

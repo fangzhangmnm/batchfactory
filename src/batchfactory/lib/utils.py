@@ -325,6 +325,18 @@ class ReprUtil:
         return ReprUtil.repr_str(g, max_len=max_len)
 
 
+def download_if_missing(url, path, binary=False, headers=None):
+    import os, requests
+    if not os.path.exists(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        mode = "wb" if binary else "w"
+        with open(path, mode, encoding=None if binary else "utf-8") as f:
+            f.write(response.content if binary else response.text)
+    mode = "rb" if binary else "r"
+    with open(path, mode, encoding=None if binary else "utf-8") as f:
+        return f.read()
 
 
 __all__ = [
@@ -338,4 +350,5 @@ __all__ = [
     "CollectionsUtil",
     "ReprUtil",
     "to_glob",
+    "download_if_missing",
 ]

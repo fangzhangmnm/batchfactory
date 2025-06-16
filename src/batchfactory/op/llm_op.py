@@ -5,22 +5,26 @@ from ..lib.prompt_maker import PromptMaker
 from ..lib.utils import get_format_keys, hash_texts, ReprUtil
 from ..brokers.llm_broker import LLMBroker
 from ..core.broker import BrokerJobStatus
-from .common_op import RemoveField
+from .common_op import RemoveField, MapField
 from ..lib.utils import _to_list_2, _pick_field_or_value_strict
 from .broker_op import BrokerOp, BrokerFailureBehavior
+from ..core.project_folder import ProjectFolder
+from ._registery import show_in_op_list
+from . import functional as F
 from typing import List, Dict, NamedTuple, Set, Tuple, Any
-import re
 
 class GenerateLLMRequest(ApplyOp):
     "Generate LLM requests from a given prompt, formatting it with the entry data."
-    def __init__(self,user_prompt:str|PromptMaker|None,model,
-                 max_completion_tokens=4096,
-                 role="user",
-                 output_key="llm_request",
-                 system_prompt:str|PromptMaker|None=None,
-                 chat_history_key:str|bool|None=None, # if provided, will append the history to the prompt, if True, default to "chat_history"
-                 after_prompt:str|PromptMaker|None=None, # if provided, will append the after_prompt after the history
-                 ):
+    def __init__(self,user_prompt:str|PromptMaker|None,
+                *,
+                model,
+                max_completion_tokens=4096,
+                role="user",
+                output_key="llm_request",
+                system_prompt:str|PromptMaker|None=None,
+                chat_history_key:str|bool|None=None, # if provided, will append the history to the prompt, if True, default to "chat_history"
+                after_prompt:str|PromptMaker|None=None, # if provided, will append the after_prompt after the history
+                ):
         if not llm_client_hub.is_chat_completion_model(model):
             raise ValueError(f"{model} is not a chat completion model.")
         super().__init__()
@@ -95,9 +99,9 @@ class GenerateLLMRequest(ApplyOp):
 class ExtractResponseText(ApplyOp):
     "Extract the text content from the LLM response and store it to entry data."
     def __init__(self, 
-                 input_key="llm_response", 
-                 output_key="text",
-                 ):
+                input_key="llm_response", 
+                output_key="text",
+                ):
         super().__init__()
         self.input_key = input_key
         self.output_key = output_key
@@ -106,114 +110,33 @@ class ExtractResponseText(ApplyOp):
         llm_response:LLMResponse = LLMResponse.model_validate(llm_response)
         entry.data[self.output_key] = llm_response.message.content
     
-class UpdateChatHistory(ApplyOp):
-    "Appending the LLM response to the chat history."
-    def __init__(self,
-                    input_key="text",
-                    output_key="chat_history",
-                    character_name:str=None, # e.g. "Timmy"
-                    character_key:str=None, # e.g. "character_name"
-    ):
-        super().__init__()
-        self.input_key = input_key
-        self.output_key = output_key
-        self.character_name = character_name
-        self.character_key = character_key
-    def update(self, entry: Entry) -> None:
-        response_text = entry.data.get(self.input_key, None)
-        chat_history = entry.data.setdefault(self.output_key, [])
-        chat_history.append({
-            "role": _pick_field_or_value_strict(entry.data, self.character_key, self.character_name, default="assistant"),
-            "content": response_text,
-        })
-        entry.data[self.output_key] = chat_history
-
-class ChatHistoryToText(ApplyOp):
-    "Format the chat history into a single text."
-    def __init__(self, 
-                 input_key="chat_history",
-                 output_key="text",
-                 template="**{role}**: {content}\n\n",
-                 exclude_roles:List[str]|None=None, # e.g. ["system"]
-    ):
-        super().__init__()
-        self.input_key = input_key
-        self.output_key = output_key
-        self.template = template
-        self.exclude_roles = _to_list_2(exclude_roles)
-    def update(self, entry: Entry) -> None:
-        text=""
-        chat_history = entry.data[self.input_key]
-        for message in chat_history:
-            if message["role"] in self.exclude_roles:
-                continue
-            text += self.template.format(role=message["role"], content=message["content"])
-        entry.data[self.output_key] = text
-
-        
-class TransformCharacterDialogueForLLM(ApplyOp):
-    "Map custom character roles to valid LLM roles (user/assistant/system). Must be called after GenerateLLMRequest."
-    def __init__(self, 
-                 character_name:str|None=None, # e.g. "Timmy"
-                 character_key:str|None=None, # e.g. "character_name"
-                 dialogue_template="{name}: {content}\n",
-                 input_key="llm_request",
-    ):
-        super().__init__()
-        self.character_name = character_name
-        self.character_key = character_key
-        self.input_key = input_key
-        self.allowed_roles=["user","assistant","system"]
-        self.dialogue_template = dialogue_template
-    def update(self, entry: Entry) -> None:
-        llm_request = entry.data.get(self.input_key, None)
-        llm_request:LLMRequest = LLMRequest.model_validate(llm_request)
-        input_messages = llm_request.messages
-        output_messages = []
-        assistant_character_name = _pick_field_or_value_strict(entry.data, self.character_key, self.character_name, default="assistant")
-        for input_message in input_messages:
-            if input_message.role in self.allowed_roles:
-                output_messages.append(input_message)
-                continue
-            if input_message.role == assistant_character_name:
-                role = "assistant"
-            else:
-                role = "user"
-            context = self.dialogue_template.format(name=input_message.role, content=input_message.content)
-            if len(output_messages)>0 and output_messages[-1].role == role:
-                output_messages[-1].content += context
-            else:
-                output_messages.append(LLMMessage(role=role, content=context))
-        llm_request.messages = output_messages
-        entry.data[self.input_key] = llm_request.model_dump()
-
+# class PrintTotalCost(OutputOp):
+#     "Print the total accumulated API cost for the output batch."
+#     def __init__(self, accumulated_cost_key="api_cost"):
+#         super().__init__()
+#         self.accumulated_cost_key = accumulated_cost_key
+#     def output_batch(self,batch:Dict[str,Entry])->None:
+#         total_cost = sum(entry.data.get(self.accumulated_cost_key, 0.0) for entry in batch.values())
+#         if total_cost<0.05:
+#             print(f"Total API cost for the output: {total_cost: .6f} USD")
+#         else:
+#             print(f"Total API cost for the output: ${total_cost:.2f} USD")
     
-class PrintTotalCost(OutputOp):
-    "Print the total accumulated API cost for the output batch."
-    def __init__(self, accumulated_cost_key="api_cost"):
-        super().__init__()
-        self.accumulated_cost_key = accumulated_cost_key
-    def output_batch(self,batch:Dict[str,Entry])->None:
-        total_cost = sum(entry.data.get(self.accumulated_cost_key, 0.0) for entry in batch.values())
-        if total_cost<0.05:
-            print(f"Total API cost for the output: {total_cost: .6f} USD")
-        else:
-            print(f"Total API cost for the output: ${total_cost:.2f} USD")
-    
-
 class CallLLM(BrokerOp):
     "Dispatch concurrent API calls for LLM — may induce API billing from external providers."
     def __init__(self,
-                    cache_path: str,
-                    broker: LLMBroker,
-                    input_key="llm_request",
-                    output_key="llm_response",
-                    status_key="status",
-                    job_idx_key="job_idx",
-                    keep_all_rev: bool = True,
-                    failure_behavior:BrokerFailureBehavior = BrokerFailureBehavior.STAY,
-                    barrier_level: int = 1
+                 *,
+                cache_path: str=None,
+                broker: LLMBroker=None,
+                input_key="llm_request",
+                output_key="llm_response",
+                status_key="status",
+                job_idx_key="job_idx",
+                keep_all_rev: bool = True,
+                failure_behavior:BrokerFailureBehavior = BrokerFailureBehavior.STAY,
+                barrier_level: int = 1,
     ):
+        if broker is None: broker = ProjectFolder.get_current().get_default_broker(LLMBroker)
         if not isinstance(broker, LLMBroker): raise ValueError(f"Expected broker to be of type LLMBroker, got {type(broker)}")
         super().__init__(
             cache_path=cache_path,
@@ -248,41 +171,50 @@ class CleanupLLMData(RemoveField):
     def __init__(self,keys=["llm_request","llm_response","status","job_idx"]):
         super().__init__(*keys)
 
-def remove_speaker_tag(line):
-    "Remove speaker tags. Use MapField to wrap it."
-    pattern = r'^\s*[*_~`]*\w+[*_~`]*[:：][*_~`]*\s*'
-    return re.sub(pattern, '', line)
-remove_speaker_tag._show_in_op_list = True
-
-def split_cot(text)->Tuple[str,str]:
-    "Split the LLM response into text and chain of thought (CoT). Use MapField to wrap it."
-    cot = ""
-    if "</think>" in text:
-        cot, text = text.split("</think>", 1)
-        if cot.strip().startswith("<think>"):
-            cot = cot.strip()[len("<think>"):]
-    return text, cot.strip()
-split_cot._show_in_op_list = True
-
-def remove_cot(text):
-    "Remove the chain of thought (CoT) from the LLM response. Use MapField to wrap it."
-    return split_cot(text)[0]
-remove_cot._show_in_op_list = True
+@show_in_op_list(highlight=True)
+def AskLLM(prompt:str|PromptMaker,
+            *,
+            model:str,
+            output_key: str = "text",
+            cache_path: str=None,
+            broker: LLMBroker=None,
+            max_completion_tokens=4096,
+            system_prompt:str|PromptMaker|None=None,
+            remove_cot:bool=True,
+            ):
+    "Ask the LLM with a given prompt and model, returning the response text."
+    g = GenerateLLMRequest(
+        user_prompt=prompt,
+        model=model,
+        max_completion_tokens=max_completion_tokens,
+        output_key="llm_request",
+        system_prompt=system_prompt)
+    g |= CallLLM(
+        cache_path=cache_path,
+        broker=broker,
+        input_key="llm_request",
+        output_key="llm_response",
+        status_key="status",
+        job_idx_key="job_idx",
+    )
+    g |= ExtractResponseText(
+        input_key="llm_response",
+        output_key=output_key,
+    )
+    g |= CleanupLLMData()
+    if remove_cot:
+        g |= MapField(F.remove_cot, output_key)
+    return g
 
 
 __all__ = [
     "GenerateLLMRequest",
     "ExtractResponseText",
     # "ExtractResponseMeta",
-    "UpdateChatHistory",
-    "TransformCharacterDialogueForLLM",
-    "CallLLM",
-    "PrintTotalCost",
+    # "PrintTotalCost",
     "CleanupLLMData",
-    "ChatHistoryToText",
-    "remove_speaker_tag",
-    "remove_cot",
-    "split_cot",
+    "CallLLM",
+    "AskLLM",
 ]
 
 

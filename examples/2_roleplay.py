@@ -1,44 +1,32 @@
 import batchfactory as bf
 from batchfactory.op import *
-
-project = bf.ProjectFolder("roleplay", 1, 0, 5)
-broker  = bf.brokers.LLMBroker(project["cache/llm_broker.jsonl"])
-
-def Character(character_key, user_prompt):
-    def func(command,identifier):
-        seg = GenerateLLMRequest(
-            user_prompt = user_prompt,
-            model="gpt-4o-mini@openai",
-            chat_history_key=True,
-            after_prompt=command,
-        )
-        seg |= TransformCharacterDialogueForLLM(character_key=character_key)
-        seg |= CallLLM(project[f"cache/llm_call_{identifier}.jsonl"], broker, failure_behavior="retry")
-        seg |= ExtractResponseText()
-        seg |= MapField(remove_speaker_tag, "text")
-        seg |= UpdateChatHistory(character_key=character_key)
-        seg |= CleanupLLMData()
-        return seg
-    return func
+import batchfactory.op.functional as F
 
 FORMAT_REQ = "Please only output the dialogue."
+model = "gpt-4o-mini@openai"
 
-# START_EXAMPLE_EXPORT
-Teacher = Character("teacher_name", "You are a teacher named {teacher_name}. "+FORMAT_REQ)
-Student = Character("student_name", "You are a student named {student_name}. "+FORMAT_REQ)
+with bf.ProjectFolder("roleplay", 1, 0, 5) as project:
+    ###### Setup topics ######
+    g = ReadMarkdownLines("./demo_data/greek_mythology_stories.md") | TakeFirstN(1)
 
-g = bf.Graph()
-g |= ReadMarkdownLines("./demo_data/greek_mythology_stories.md") | TakeFirstN(1)
-g |= SetField("teacher_name", "Teacher","student_name", "Student")
+    # START_EXAMPLE_EXPORT
+    ###### Create the characters and their settings ######
+    Teacher = AICharacter("Teacher", "You are a teacher. "+FORMAT_REQ, model=model)
+    Student = AICharacter("Student", "You are a student. "+FORMAT_REQ, model=model)
 
-g |= Teacher("Please introduce the text from {headings} titled {keyword}.", 0)
-loop_body = Student("Please ask questions or respond.", 1)
-loop_body |= Teacher("Please respond to the student or continue explaining.", 2)
-g |= Repeat(loop_body, 3)
-g |= Teacher("Please summarize.", 3)
-g |= ChatHistoryToText(template="**{role}**: {content}\n\n")
-g |= MapField(lambda headings,keyword: headings+[keyword], ["headings", "keyword"], "headings")
-g |= WriteMarkdownEntries(project["out/roleplay.md"])
-# END_EXAMPLE_EXPORT
+    ###### Introduction of the Role Playing Session ######
+    g |= Teacher("Please introduce the text from {headings} titled {keyword}.")
+    ###### Main Role Playing Loop ######
+    loop_body = Student("Please ask questions or respond.")
+    loop_body |= Teacher("Please respond to the student or continue explaining.")
+    g |= Repeat(loop_body, 3)
+    ###### Wrap Up ######
+    g |= Teacher("Please summarize.")
+    g |= ChatHistoryToText(template="**{role}**: {content}\n\n")
+
+    ###### Export the Role Playing Session ######
+    g |= MapField(lambda headings,keyword: headings+[keyword], ["headings", "keyword"], "headings")
+    g |= WriteMarkdownEntries(project["out/roleplay.md"])
+    # END_EXAMPLE_EXPORT
 
 g.execute(dispatch_brokers=True)
