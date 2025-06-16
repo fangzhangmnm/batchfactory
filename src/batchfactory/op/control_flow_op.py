@@ -84,7 +84,7 @@ class EndIf(MergeOp):
         # should not increase rev here
         return entry
     
-@show_in_op_list
+@show_in_op_list(highlight=True)
 def If(criteria:Callable, true_chain:'Graph|BaseOp|None', false_chain=None) -> 'Graph':
     """
     Switch to true_chain if criteria is met, otherwise stay on false_chain.
@@ -165,7 +165,7 @@ class WhileNode(LoopOp):
         else:
             return self._criteria(entry.data)
        
-@show_in_op_list 
+@show_in_op_list(highlight=True)
 def While(criteria:Callable, body_chain:'Graph|BaseOp') -> 'Graph':
     """
     Executes the loop body while the criteria is met.
@@ -343,7 +343,7 @@ class CollectAllToList(CollectAllOp):
             zipped_output_lists.append(KeysUtil.read_dict(spawn_bundle[spawn_idx].data, self.in_items_keys))
         KeysUtil.write_dict(master_entry.data, self.out_lists_keys, *zip(*zipped_output_lists))
         
-@show_in_op_list
+@show_in_op_list(highlight=True)
 def ListParallel(spawn_body:'Graph|BaseOp',
         in_lists_keys:str="list",
         out_items_keys:str|None="item",
@@ -355,7 +355,7 @@ def ListParallel(spawn_body:'Graph|BaseOp',
         spawn_idx_list_key="spawn_idx_list",
         master_body:'Graph|BaseOp|None'=None,
     ):
-    "Spawn entries from a list (or lists), process them in parallel, and collect them back to a list (or lists)."
+    "Spawn multiple entries from a list (or lists), process them in parallel, and collect them back to a list (or lists)."
     if out_items_keys is None: 
         out_items_keys = in_lists_keys
     if in_items_keys is None:

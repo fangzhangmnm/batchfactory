@@ -2,7 +2,7 @@
 
 Composable, cache‑aware pipelines for **parallel LLM workflows**, API calls, and dataset generation.
 
-> **Status — `v0.4` beta.** More robust and battle-tested on small projects. Still evolving quickly — APIs may shift.
+> **Status — `v0.5` beta.** More robust and battle-tested on small projects. Still evolving quickly — APIs may shift.
 
 ![BatchFactory cover](https://raw.githubusercontent.com/fangzhangmnm/batchfactory/main/docs/assets/batchfactory.jpg)
 
@@ -100,7 +100,11 @@ g |= MapField(create_input_chunks, "text", "text_segments")
 ### Loop snippet (Role‑Playing)
 
 ```python
-###### Create the characters and their settings ######
+with bf.ProjectFolder("roleplay", 1, 0, 5) as project:
+    ###### Setup topics ######
+    g = ReadMarkdownLines("./demo_data/greek_mythology_stories.md") | TakeFirstN(1)
+
+    ###### Create the characters and their settings ######
     Teacher = AICharacter("Teacher", "You are a teacher. "+FORMAT_REQ, model=model)
     Student = AICharacter("Student", "You are a student. "+FORMAT_REQ, model=model)
 
@@ -148,6 +152,9 @@ g |= EmbedText("keyword", model="text-embedding-3-small@openai", output_format="
 | **`AICharacter`** | Create a callable AI-character that yields a dialogue subgraph. |
 | **`AskLLM`** | Ask the LLM with a given prompt and model, returning the response text. |
 | **`EmbedText`** | Get the embedding vector for the input text. |
+| **`If`** | Switch to true_chain if criteria is met, otherwise stay on false_chain. |
+| **`ListParallel`** | Spawn multiple entries from a list (or lists), process them in parallel, and collect them back to a list (or lists). |
+| **`While`** | Executes the loop body while the criteria is met. |
 | `Apply` | Apply a function to modify the entry data. |
 | `CheckPoint` | A no-op checkpoint that saves inputs to the cache, and resumes from the cache. |
 | `CollectAllToList` | Collect items from spawn entries on port 1 and merge them into a list (or lists if multiple items provided). |
@@ -157,8 +164,6 @@ g |= EmbedText("keyword", model="text-embedding-3-small@openai", output_format="
 | `FilterFailedEntries` | Drop entries that have a status "failed". |
 | `FilterMissingFields` | Drop entries that do not have specific fields. |
 | `FromList` | Create entries from a list of dictionaries or objects, each representing an entry. |
-| `If` | Switch to true_chain if criteria is met, otherwise stay on false_chain. |
-| `ListParallel` | Spawn entries from a list (or lists), process them in parallel, and collect them back to a list (or lists). |
 | `MapField` | Map a function to specific field(s) in the entry data. |
 | `PrintEntry` | Print the first n entries information. |
 | `PrintField` | Print the specific field(s) from the first n entries. |
@@ -177,7 +182,6 @@ g |= EmbedText("keyword", model="text-embedding-3-small@openai", output_format="
 | `SpawnFromList` | Spawn multiple spawn entries to port 1 based on a list (or lists). |
 | `TakeFirstN` | Takes the first N entries from the batch. discards the rest. |
 | `ToList` | Output a list of specific field(s) from entries. |
-| `While` | Executes the loop body while the criteria is met. |
 | `WriteJsonl` | Write entries to a JSON Lines file. |
 | `WriteMarkdownEntries` | Write entries to Markdown file(s), with heading hierarchy defined by headings and text as content. |
 | `WriteMarkdownLines` | Write keyword lists to Markdown file(s) as lines, with heading hierarchy defined by headings:list. |

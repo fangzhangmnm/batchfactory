@@ -5,11 +5,11 @@ import batchfactory.op.functional as F
 FORMAT_REQ = "Please only output the dialogue."
 model = "gpt-4o-mini@openai"
 
+# START_EXAMPLE_EXPORT
 with bf.ProjectFolder("roleplay", 1, 0, 5) as project:
     ###### Setup topics ######
     g = ReadMarkdownLines("./demo_data/greek_mythology_stories.md") | TakeFirstN(1)
 
-    # START_EXAMPLE_EXPORT
     ###### Create the characters and their settings ######
     Teacher = AICharacter("Teacher", "You are a teacher. "+FORMAT_REQ, model=model)
     Student = AICharacter("Student", "You are a student. "+FORMAT_REQ, model=model)
@@ -27,6 +27,6 @@ with bf.ProjectFolder("roleplay", 1, 0, 5) as project:
     ###### Export the Role Playing Session ######
     g |= MapField(lambda headings,keyword: headings+[keyword], ["headings", "keyword"], "headings")
     g |= WriteMarkdownEntries(project["out/roleplay.md"])
-    # END_EXAMPLE_EXPORT
+# END_EXAMPLE_EXPORT
 
 g.execute(dispatch_brokers=True)
