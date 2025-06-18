@@ -337,6 +337,10 @@ def download_if_missing(url, path, binary=False, headers=None):
     mode = "rb" if binary else "r"
     with open(path, mode, encoding=None if binary else "utf-8") as f:
         return f.read()
+    
+def read_txt(path):
+    with open(path, 'r', encoding='utf-8') as f:
+        return f.read()
 
 
 __all__ = [
@@ -351,4 +355,5 @@ __all__ = [
     "ReprUtil",
     "to_glob",
     "download_if_missing",
+    "read_txt",
 ]

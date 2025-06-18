@@ -21,8 +21,8 @@ class ConcurrentAPICallBroker(ImmediateBroker, ABC):
                 request_cls: type,
                 response_cls: type = None,
                 *,
-                concurrency_limit: int = 100,
-                rate_limit: int = 100,
+                concurrency_limit: int,
+                rate_limit: int,
                 max_number_per_batch: int = None
     ):
         super().__init__(cache_path=cache_path,request_cls=request_cls,response_cls=response_cls)

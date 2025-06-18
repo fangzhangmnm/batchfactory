@@ -59,7 +59,7 @@ class LLMClientHub:
     def is_embedding_model(self, model:str) -> bool:
         return self.get_property(model, 'embeddings', False)
 
-    def list_all_models(self, endpoint:str=None, provider:str=None) -> List[str]:
+    def list_all_models(self, *, endpoint:str=None, provider:str=None) -> List[str]:
         models = []
         for model, desc in model_desc.items():
             if endpoint and desc.get(endpoint, False) is False:
@@ -70,6 +70,9 @@ class LLMClientHub:
         return models
 
 llm_client_hub = LLMClientHub()
+
+def list_all_models(*,endpoint:str=None, provider:str=None) -> List[str]:
+    return llm_client_hub.list_all_models(endpoint=endpoint, provider=provider)
 
 def compute_llm_cost(prompt_tokens:int, completion_tokens:int, model:str, is_batch=False) -> float:
     input_price_M, output_price_M = llm_client_hub.get_price_M(model, is_batch=is_batch)
@@ -104,6 +107,7 @@ class LLMRequest(BaseModel):
     model: str # model@provider
     messages: List[LLMMessage]
     max_completion_tokens: int
+    estimated_prompt_tokens: int|None = None
 
 class LLMResponse(BaseModel):
     custom_id: str
@@ -164,8 +168,8 @@ class LLMEmbeddingRequest(BaseModel):
     custom_id: str
     model: str # model@provider
     input_text: str
-    dimensions: int|None
-    dtype: Literal['float32', 'float16']
+    dimensions: int|None = None
+    dtype: Literal['float32', 'float16'] = 'float32'
 
 class LLMEmbeddingResponse(BaseModel):
     custom_id: str
@@ -248,6 +252,7 @@ __all__ = [
     "LLMEmbeddingResponse",
     "LLMTokenCounter",
     "llm_client_hub",
+    "list_all_models",
     "get_llm_response_async",
     "get_llm_embedding_async",
 ]

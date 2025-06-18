@@ -44,6 +44,7 @@ class ReaderOp(SourceOp, ABC):
             else:
                 entry.data.update(json_obj)
             entries[idx] = entry
+        print(f"[{self.__class__.__name__}]: Read {len(entries)} entries.")
         return entries
 
 @show_in_op_list
@@ -116,7 +117,7 @@ class WriteJsonl(OutputOp):
             for entry in output_entries.values():
                 record = self._prepare_output(entry)
                 writer.write(record)
-        print(f"Output {len(output_entries)} entries to {os.path.abspath(self.path)}")
+        print(f"[WriteJsonl]: Output {len(output_entries)} entries to {os.path.abspath(self.path)}")
     def _prepare_output(self,entry:Entry):
         if not self.output_keys:
             record = deepcopy(entry.data)
@@ -195,6 +196,7 @@ class WriteTxtFolder(OutputOp):
             path = os.path.join(self.directory, filename)
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(text)
+        print(f"[WriteTxtFolder]: Output {len(batch)} entries to {os.path.abspath(self.directory)}")
 
 @show_in_op_list
 class ReadMarkdownLines(ReaderOp):
@@ -272,6 +274,7 @@ class WriteMarkdownLines(OutputOp):
         if self.filename_key is None:
             path = self.path_or_folder
             self._output_single_file(path, batch)
+            print(f"[WriteMarkdownLines]: Output {len(batch)} entries to {os.path.abspath(path)}")
         else:
             batch_per_filename = {}
             for idx, entry in batch.items():
@@ -282,6 +285,7 @@ class WriteMarkdownLines(OutputOp):
                     filename += '.md'
                 path = os.path.join(self.path_or_folder, filename)
                 self._output_single_file(path, entries)
+            print(f"[WriteMarkdownLines]: Output {len(batch)} entries to {os.path.abspath(self.path_or_folder)}")
 
 @show_in_op_list
 class ReadMarkdownEntries(ReaderOp):
@@ -364,6 +368,7 @@ class WriteMarkdownEntries(OutputOp):
         if self.filename_key is None:
             path = self.path_or_folder
             self._output_single_file(path, batch)
+            print(f"[WriteMarkdownEntries]: Output {len(batch)} entries to {os.path.abspath(path)}")
         else:
             batch_per_filename = {}
             for idx, entry in batch.items():
@@ -374,6 +379,7 @@ class WriteMarkdownEntries(OutputOp):
                     filename += '.md'
                 path = os.path.join(self.path_or_folder, filename)
                 self._output_single_file(path, entries)
+            print(f"[WriteMarkdownEntries]: Output {len(batch)} entries to {os.path.abspath(self.path_or_folder)}")
 
 @show_in_op_list
 class SortMarkdownEntries(Sort):

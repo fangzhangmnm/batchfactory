@@ -7,7 +7,7 @@ _current_project: ContextVar["ProjectFolder"] = ContextVar("current_project", de
 
 class ProjectFolder:
     "Manage a versioned project folder under a common data directory."
-    def __init__(self,project_name:str,version=0,minor_version=0,patch_version=0,data_dir:str|Path='./data'):
+    def __init__(self,project_name:str,version=0,minor_version=0,patch_version=0,*,data_dir:str|Path='./data/projects'):
         if not isinstance(project_name, str):
             raise ValueError("Project name must be a string, not a Path object.")
         self.project_name = project_name

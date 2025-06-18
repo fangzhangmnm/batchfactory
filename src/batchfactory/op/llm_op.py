@@ -181,6 +181,7 @@ def AskLLM(prompt:str|PromptMaker,
             max_completion_tokens=4096,
             system_prompt:str|PromptMaker|None=None,
             remove_cot:bool=True,
+            failure_behavior:BrokerFailureBehavior = BrokerFailureBehavior.STAY,
             ):
     "Ask the LLM with a given prompt and model, returning the response text."
     g = GenerateLLMRequest(
@@ -196,6 +197,7 @@ def AskLLM(prompt:str|PromptMaker,
         output_key="llm_response",
         status_key="status",
         job_idx_key="job_idx",
+        failure_behavior=failure_behavior,
     )
     g |= ExtractResponseText(
         input_key="llm_response",

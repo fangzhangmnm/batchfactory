@@ -10,7 +10,7 @@ class LLMBroker(ConcurrentAPICallBroker):
     def __init__(self, 
                     cache_path:str,
                     *,
-                    concurrency_limit:int=100,
+                    concurrency_limit:int=512,
                     rate_limit:int=100,
                     max_number_per_batch:int=None
     ):
