@@ -31,6 +31,7 @@ def test_llm_call(tmp_path):
             assert data["text"]
             data["text"] = f"This is a test passage {data['keyword']}."
         g |= Apply(restore_text_from_dummy_response)
+        g |= OutputEntries()
     results = g.execute(dispatch_brokers=True, mock=True)
     print(g)
 
@@ -49,7 +50,7 @@ def test_embedding_call(tmp_path):
         g |= EmbedText("text", model="text-embedding-3-small@openai")
         def check_embedding(data,dim=1536):
             assert data["embedding"]
-            embedding_vector:np.ndarray = bf.base64_utils.decode_ndarray(data["embedding"])
+            embedding_vector:np.ndarray = bf.base64.decode_ndarray(data["embedding"])
             assert isinstance(embedding_vector, np.ndarray)
             assert embedding_vector.shape == (dim,), f"Expected embedding shape {(dim,)}, got {embedding_vector.shape}"
         g |= Apply(check_embedding)
@@ -60,6 +61,7 @@ def test_embedding_call(tmp_path):
             assert isinstance(data["embedding"][0], float)
             assert len(data["embedding"]) == dim, f"Expected embedding length {dim}, got {len(data['embedding'])}"
         g |= Apply(check_embedding_2)
+        g |= OutputEntries()
     results = g.execute(dispatch_brokers=True, mock=True)
     print(g)
 
@@ -84,7 +86,8 @@ def test_json(tmp_path):
     g.execute(dispatch_brokers=False, mock=True)
     print(g)
 
-    g = ReadJsonl(project["cache/test_data.jsonl"]).to_graph()
+    g = ReadJsonl(project["cache/test_data.jsonl"],idx_key="idx")
+    g |= OutputEntries()
     results = g.execute(dispatch_brokers=False, mock=True)
     print(g)
 
@@ -104,7 +107,8 @@ def test_markdown_lines(tmp_path):
     g |= WriteMarkdownLines(project["cache/test_data.md"])
     g.execute(dispatch_brokers=False, mock=True)
 
-    g = ReadMarkdownLines(project["cache/test_data.md"]).to_graph()
+    g = ReadMarkdownLines(project["cache/test_data.md"])
+    g |= OutputEntries()
     results = g.execute(dispatch_brokers=False, mock=True)
 
     compare(results, test_data, "keyword")
@@ -123,7 +127,8 @@ def test_markdown_entries(tmp_path):
     g |= WriteMarkdownEntries(project["cache/test_data.md"])
     g.execute(dispatch_brokers=False, mock=True)
 
-    g = ReadMarkdownEntries(project["cache/test_data.md"]).to_graph()
+    g = ReadMarkdownEntries(project["cache/test_data.md"])
+    g |= OutputEntries()
     results = g.execute(dispatch_brokers=False, mock=True)
 
     compare(results, test_data, "text")
@@ -149,6 +154,7 @@ def test_rpg_loop(tmp_path):
         g |= Repeat(g1, 3)
         g |= Teacher("Please summarize.")
         g |= ChatHistoryToText(template="**{role}**: {content}\n\n")
+        g |= OutputEntries()
 
     results = g.execute(dispatch_brokers=True, mock=True)
     print(g)

@@ -24,6 +24,8 @@ class Graph:
         return self
     def __or__(self,other:'Graph|BaseOp')->'Graph':
         return self.merge(other, chain=True)
+    def __getitem__(self, tag:str)->BaseOp:
+        return self.get_unique_node_by_tag(tag)
     def merge(self, other:'Graph|BaseOp', chain=False)->'Graph':
         return OpGraphConnector.merge(self, other, chain=chain)
     def wire(self,source:'str|BaseOp|Graph',target,source_port=0,target_port=0)->None:
@@ -37,7 +39,7 @@ class Graph:
     def get_node_by_tag(self, tag:str)->BaseOp:
         return OpGraphConnector.get_unique_node_by_tag(self, tag)
     def get_output(self, node:BaseOp, port:int=None)->Dict[int,Dict[str,Entry]]|Dict[str,Entry]:
-        return self.executor.get_output(node, port)
+        return self.executor.get_node_output(node, port)
     def get_executor(self):
         if self.executor is None:
             from .executor import OpGraphExecutor

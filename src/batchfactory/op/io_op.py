@@ -1,11 +1,11 @@
-from ..core import ApplyOp, BrokerJobStatus, OutputOp, SourceOp
+from ..core import ApplyOp, BrokerJobStatus, OutputOp, SourceOp, BatchOp
 from ..core.entry import Entry
 from ..lib.utils import _to_list_2, hash_text, hash_texts, hash_json, KeysUtil, ReprUtil, to_glob
 from ..lib.markdown_utils import iter_markdown_lines, iter_markdown_entries, write_markdown_lines, write_markdown_entries, build_sort_key_from_headings, escape_markdown_headings
 from .common_op import Sort
 from ._registery import show_in_op_list
 
-from typing import Union, List, Dict, Any, Literal, Iterator, Tuple
+from typing import Union, List, Dict, Any, Literal, Iterator, Tuple, Set
 import re
 import jsonlines,json
 from glob import glob
@@ -60,28 +60,37 @@ class ReadJsonl(ReaderOp):
                  max_count: int = None,
                  fire_once: bool = True
                  ):
+        if idx_key is None and hash_keys is None:
+            raise ValueError("Must specify either idx_key or hash_keys to generate unique indices for entries.")
+        if idx_key is not None and hash_keys is not None:
+            raise ValueError("Cannot specify both idx_key and hash_keys. Use one or the other.")
         super().__init__(keys=keys, offset=offset, max_count=max_count, fire_once=fire_once)
         self.glob_str = to_glob(glob_str)
         self.idx_key = idx_key
         self.hash_keys = KeysUtil.make_keys(hash_keys) if hash_keys is not None else None
-        if self.idx_key is not None and self.hash_keys is not None:
-            raise ValueError("Cannot specify both idx_key and hash_keys. Use one or the other.")
     def _args_repr(self): return ReprUtil.repr_glob(self.glob_str)
     def _iter_records(self) -> Iterator[Tuple[str,Dict]]:
         for path in sorted(glob(self.glob_str)):
             if path.endswith('.jsonl'):
-                with jsonlines.open(path) as reader:
-                    for record in reader:
-                        idx = self.generate_idx_from_json(record)
-                        yield idx, record
+                it = self._iter_jsonl(path)
             elif path.endswith('.json'):
-                with open(path, 'r', encoding='utf-8') as f:
-                    records = json.load(f)
-                    if isinstance(records, dict):
-                        records = [records]  # Ensure data is a list of dicts
-                    for record in records:
-                        idx = self._generate_idx(record)
-                        yield idx, record
+                it = self._iter_json(path)
+            else:
+                raise ValueError(f"Unsupported file format: {path}. Only .jsonl and .json files are supported.")
+            for record in it:
+                idx = self.generate_idx_from_json(record)
+                yield idx, record
+    def _iter_jsonl(self, path:str) -> Iterator[Dict]:
+        with jsonlines.open(path) as reader:
+            for record in reader:
+                yield record
+    def _iter_json(self, path:str) -> Iterator[Dict]:
+        with open(path, 'r', encoding='utf-8') as f:
+            records = json.load(f)
+            if isinstance(records, dict):
+                records = [records]
+            for record in records:
+                yield record
     def generate_idx_from_json(self, json_obj) -> str:
         """Generate an index for the entry based on idx_key and/or hash_keys."""
         if self.idx_key is not None:
@@ -90,7 +99,7 @@ class ReadJsonl(ReaderOp):
             json_to_hash = {k:json_obj.get(k) for k in sorted(self.hash_keys)}
             return hash_json(json_to_hash)
         else:
-            return hash_json(json_obj)
+            raise ValueError("Must specify either idx_key or hash_keys to generate unique indices for entries.")
 
 @show_in_op_list
 class WriteJsonl(OutputOp):
@@ -126,6 +135,39 @@ class WriteJsonl(OutputOp):
         record['idx'] = entry.idx
         record['rev'] = entry.rev
         return record
+
+
+@show_in_op_list
+class FilterExistingEntriesInJsonl(BatchOp):
+    """
+    Filter out entries that have already been processed and exist in a given JSONL archive.
+    - Only entries with non-null values for all specified keys are considered processed.
+    """
+    def __init__(self, 
+                    jsonl_path: str|Path, 
+                    keys: List[str],
+    ):
+        super().__init__()
+        self.jsonl_path = jsonl_path
+        self.keys = KeysUtil.make_keys(keys) if keys else None
+    def _args_repr(self): return ReprUtil.repr_path(self.jsonl_path)
+    def _get_processed(self) -> Set[str]:
+        processed_idxs = set()
+        if os.path.exists(self.jsonl_path):
+            with jsonlines.open(self.jsonl_path, 'r') as reader:
+                for record in reader:
+                    idx = record['idx']
+                    if self.keys is not None:
+                        if any(record.get(k) is None for k in self.keys):
+                            continue
+                    processed_idxs.add(idx)
+        return processed_idxs
+    def update_batch(self, batch: Dict[str, Entry]) -> Dict[str, Entry]:
+        processed_idxs = self._get_processed()
+        filtered_batch = {idx: entry for idx, entry in batch.items() if idx not in processed_idxs}
+        if len(filtered_batch) < len(batch):
+            print(f"[FilterExistingEntriesInJsonl]: Filtered {len(batch) - len(filtered_batch)} entries from {len(batch)} entries.")
+        return filtered_batch
 
 def generate_idx_from_strings(strings: List[str]) -> str:
     def escape_string(s):
@@ -465,6 +507,22 @@ class ToList(OutputOp):
             self._output_entries[idx] = record
     def get_output(self) -> List[Dict|Any]:
         return list(self._output_entries.values())
+    
+@show_in_op_list
+class OutputEntries(OutputOp):
+    "Output entries to a list."
+    def __init__(self):
+        super().__init__()
+        self._output_entries = {}
+    def output_batch(self, batch: Dict[str, Entry]) -> None:
+        for idx, entry in batch.items():
+            if idx in self._output_entries:
+                if entry.rev < self._output_entries[idx].rev:
+                    continue
+            self._output_entries[idx] = entry
+    def get_output(self) -> List[Entry]:
+        return list(self._output_entries.values())
+
 
 @show_in_op_list
 class PrintEntry(OutputOp):
@@ -496,10 +554,14 @@ class PrintField(OutputOp):
             print()
         print()
 
+
+
+
 __all__ = [
     "ReaderOp",
     "WriteJsonl",
     "ReadJsonl",
+    "FilterExistingEntriesInJsonl",
     "ReadTxtFolder",
     "ReadMarkdownLines",
     "WriteMarkdownLines",
@@ -510,4 +572,5 @@ __all__ = [
     "ToList",
     "PrintEntry",
     "PrintField",
+    "OutputEntries",
 ]

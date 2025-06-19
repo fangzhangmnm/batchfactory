@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from enum import Enum
 
 from ..lib.utils import _to_record, _to_BaseModel
-from .ledger import _Ledger
+from .ledger import Ledger
 
 class BrokerJobStatus(str,Enum):
     QUEUED = "queued"
@@ -30,7 +30,7 @@ class Broker(ABC):
     def __init__(self, cache_path: str, request_cls:type[BaseModel]=None, response_cls:type[BaseModel]=None):
         self.request_cls = request_cls
         self.response_cls = response_cls
-        self._ledger = _Ledger(cache_path)
+        self._ledger = Ledger(cache_path)
         self.verbose=0
     def reset(self):
         self._ledger.reset()

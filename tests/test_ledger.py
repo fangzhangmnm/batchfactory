@@ -1,10 +1,10 @@
-from batchfactory.core.ledger import _Ledger
+from batchfactory.core.ledger import Ledger
 import os
 
 def test_ledger(tmp_path):
     # Clean up any existing cache file
     cache_path = tmp_path / "test_ledger_cache.json"
-    ledger = _Ledger(cache_path)
+    ledger = Ledger(cache_path)
     ledger.resume()
     # Append some records
     ledger.append_many({
@@ -39,7 +39,7 @@ def test_ledger(tmp_path):
     assert os.path.exists(ledger.path)
     # Resume
     del ledger
-    ledger = _Ledger(cache_path)
+    ledger = Ledger(cache_path)
     ledger.resume()
     # Check if the records are still there after resume
     assert ledger.contains("3")

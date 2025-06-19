@@ -8,7 +8,7 @@ from pathlib import Path
 COMPACT_ON_RESUME=False
 DELETE_NONE=True
 
-class _Ledger:
+class Ledger:
     """Cache synced storage based on jsonlines and atomic append
     also supports compact and autocast on retrieve."""
     def __init__(self, path: str|Path):

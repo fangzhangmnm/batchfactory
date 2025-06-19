@@ -50,6 +50,8 @@ class BaseOp(ABC):
         if not isinstance(tag,str) or not tag: raise ValueError("tag must be a non-empty string")
         self._tag = tag
         return self
+    def get_output(self):
+        pass
 
 class ApplyOp(BaseOp, ABC):
     "Modifies entries in-place; maps each idx → same idx."
@@ -190,6 +192,9 @@ class OutputOp(BatchOp, ABC):
         if not batch: return {}
         self.output_batch(batch)
         return {**batch}
+    def get_output(self)->Any:
+        "If the OutputOp outputs a python object, return it."
+        pass
 
 class SpawnOp(BaseOp, ABC):
     "Create spawn entries on out_port 1, keep master entry unchanged."

@@ -135,13 +135,23 @@ class OpGraphExecutor:
                 current_barrier_level_idx = min(current_barrier_level_idx, barrier_levels.index(emit_level))
             if iterations >= max_iterations:
                 break
-        if self.tail:
-            return list(self.output_cache.get((self.tail, 0), {}).values())
+        # returns the output of output node
+        output_objects = []
+        for node in self.nodes:
+            output = node.get_output()
+            if output is not None:
+                output_objects.append(output)
+        if len(output_objects) == 1:
+            return output_objects[0]
+        elif len(output_objects) >1:
+            return tuple(output_objects)
+        else:
+            return None
         
 
-    def get_output(self, node:BaseOp, port:int=None)->Dict[int,Dict[str,Entry]]|Dict[str,Entry]:
+    def get_node_output(self, node:BaseOp, port:int=None)->Dict[int,Dict[str,Entry]]|Dict[str,Entry]:
         if port is None:
-            return {port: self.get_output(node, port) for port in range(node.n_out_ports)}
+            return {port: self.get_node_output(node, port) for port in range(node.n_out_ports)}
         return self.output_cache.get((node, port), {})
 
 

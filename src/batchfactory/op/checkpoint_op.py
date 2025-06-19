@@ -5,7 +5,7 @@ import os
 
 from ..core.entry import Entry
 from ..core.project_folder import ProjectFolder
-from ..core.ledger import _Ledger
+from ..core.ledger import Ledger
 from ..core.base_op import BaseOp, PumpOptions, PumpOutput
 from ..lib.utils import ReprUtil
 from ._registery import show_in_op_list
@@ -21,7 +21,7 @@ class CheckpointOp(BaseOp, ABC):
             cache_path = ProjectFolder.get_current().generate_op_path(self)
         if barrier_level < 1: raise ValueError("barrier_level of CheckpointOp must be at least 1")
         super().__init__(n_in_ports=1, n_out_ports=1, barrier_level=barrier_level)
-        self._ledger = _Ledger(cache_path)
+        self._ledger = Ledger(cache_path)
         self.keep_all_rev = keep_all_rev
         self.emitted_revs = {} # prevent the same entry being emitted twice
 
@@ -80,6 +80,21 @@ class CheckpointOp(BaseOp, ABC):
             submit_records[record_idx] = record
         if submit_records:
             self._ledger.update_many(submit_records)
+
+    def remove(self, idx:str|List[str]|Set[str]):
+        "Remove entries from the cache by idx or a list of idxs."
+        if isinstance(idx, (list, set)):
+            idx = set(idx)
+        elif isinstance(idx, str):
+            idx = {idx}
+        else:
+            raise TypeError(f"idx must be str, list or set, but got {type(idx)}")
+        to_remove = set()
+        for ledger_idx, entry in self._ledger.get_all().items():
+            if entry.idx in idx:
+                to_remove.add(ledger_idx)
+        if to_remove:
+            self._ledger.remove_many(to_remove)
     
     def _get_up_to_date_batch(self,input_batch:Dict[str,Entry])->Dict[str, Entry]:
         """
