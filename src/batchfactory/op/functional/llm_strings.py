@@ -41,7 +41,12 @@ def discard_after(text, regex):
         return text[:match.start()]
     return text
 
-
+def get_first_regex_match(text: str, regex: str, default=""):
+    regex = _get_compiled_re(regex)
+    match = regex.search(text)
+    if match:
+        return match.group(0)
+    return default
 
 
 
@@ -50,5 +55,6 @@ __all__ = [
     "split_cot",
     "remove_cot",
     "text_to_integer_list",
-    "discard_after"
+    "discard_after",
+    "get_first_regex_match",
 ]

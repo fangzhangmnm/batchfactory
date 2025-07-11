@@ -2,7 +2,7 @@ from ..core.entry import Entry
 from ..core.base_op import ApplyOp, OutputOp
 from ..lib.llm_backend import LLMRequest, LLMMessage, LLMResponse, llm_client_hub
 from ..lib.prompt_maker import PromptMaker
-from ..lib.utils import get_format_keys, hash_texts, ReprUtil
+from ..lib.utils import get_format_keys, hash_texts, ReprUtil, KeysUtil
 from ..brokers.llm_broker import LLMBroker
 from ..core.broker import BrokerJobStatus
 from .common_op import RemoveField, MapField
@@ -171,6 +171,19 @@ class CleanupLLMData(RemoveField):
     def __init__(self,keys=["llm_request","llm_response","status","job_idx"]):
         super().__init__(*keys)
 
+class CountTotalCharacters(OutputOp):
+    "Count the total number of characters in the output text field of the batch."
+    def __init__(self, keys:List[str]=["text"]):
+        super().__init__()
+        self.keys = KeysUtil.make_keys(keys)
+    def output_batch(self, batch:Dict[str,Entry]) -> None:
+        total_chars = 0
+        for entry in batch.values():
+            for key in self.keys:
+                text = entry.data.get(key, "")
+                total_chars += len(text)
+        print(f"[CountTotalCharacters] Total characters in output: {total_chars:,} characters.")
+
 @show_in_op_list(highlight=True)
 def AskLLM(prompt:str|PromptMaker,
             *,
@@ -208,7 +221,6 @@ def AskLLM(prompt:str|PromptMaker,
         g |= MapField(F.remove_cot, output_key)
     return g
 
-
 __all__ = [
     "GenerateLLMRequest",
     "ExtractResponseText",
@@ -217,6 +229,7 @@ __all__ = [
     "CleanupLLMData",
     "CallLLM",
     "AskLLM",
+    "CountTotalCharacters",
 ]
 
 

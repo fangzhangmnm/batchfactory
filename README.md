@@ -161,10 +161,12 @@ g |= EmbedText("keyword", model="text-embedding-3-small@openai", output_format="
 | `CollectField` | Collect field(s) from port 1, merge to 0. |
 | `ExplodeList` | Explode an entry to multiple entries based on a list (or lists). |
 | `Filter` | Filter entries based on a custom criteria function. |
+| `FilterExistingEntriesInJsonl` | Filter out entries that have already been processed and exist in a given JSONL archive. |
 | `FilterFailedEntries` | Drop entries that have a status "failed". |
 | `FilterMissingFields` | Drop entries that do not have specific fields. |
 | `FromList` | Create entries from a list of dictionaries or objects, each representing an entry. |
 | `MapField` | Map a function to specific field(s) in the entry data. |
+| `OutputEntries` | Output entries to a list. |
 | `PrintEntry` | Print the first n entries information. |
 | `PrintField` | Print the specific field(s) from the first n entries. |
 | `ReadJsonl` | Read JSON Lines files. (also supports json array) |

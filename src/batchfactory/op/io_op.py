@@ -13,6 +13,7 @@ import itertools as itt
 from abc import abstractmethod, ABC
 from collections.abc import Hashable
 from copy import deepcopy
+import pyarrow.parquet as pq
 import os
 from dataclasses import asdict
 from copy import deepcopy
@@ -91,6 +92,44 @@ class ReadJsonl(ReaderOp):
                 records = [records]
             for record in records:
                 yield record
+    def generate_idx_from_json(self, json_obj) -> str:
+        """Generate an index for the entry based on idx_key and/or hash_keys."""
+        if self.idx_key is not None:
+            return json_obj.get(self.idx_key, "")
+        elif self.hash_keys is not None:
+            json_to_hash = {k:json_obj.get(k) for k in sorted(self.hash_keys)}
+            return hash_json(json_to_hash)
+        else:
+            raise ValueError("Must specify either idx_key or hash_keys to generate unique indices for entries.")
+
+@show_in_op_list
+class ReadParquet(ReaderOp):
+    """Read Parquet files."""
+    def __init__(self, 
+                 glob_str: str|Path, 
+                 keys: List[str]=None,
+                 *,
+                 idx_key: str = None,
+                 hash_keys: Union[str, List[str]] = None,
+                 offset: int = 0,
+                 max_count: int = None,
+                 fire_once: bool = True
+                 ):
+        if idx_key is None and hash_keys is None:
+            raise ValueError("Must specify either idx_key or hash_keys to generate unique indices for entries.")
+        if idx_key is not None and hash_keys is not None:
+            raise ValueError("Cannot specify both idx_key and hash_keys. Use one or the other.")
+        super().__init__(keys=keys, offset=offset, max_count=max_count, fire_once=fire_once)
+        self.glob_str = to_glob(glob_str)
+        self.idx_key = idx_key
+        self.hash_keys = KeysUtil.make_keys(hash_keys) if hash_keys is not None else None
+    def _args_repr(self): return ReprUtil.repr_glob(self.glob_str)
+    def _iter_records(self) -> Iterator[Tuple[str,Dict]]:
+        for path in sorted(glob(self.glob_str)):
+            table = pq.read_table(path)
+            for row in table.to_pylist():
+                idx = self.generate_idx_from_json(row)
+                yield idx, row
     def generate_idx_from_json(self, json_obj) -> str:
         """Generate an index for the entry based on idx_key and/or hash_keys."""
         if self.idx_key is not None:
@@ -561,6 +600,7 @@ __all__ = [
     "ReaderOp",
     "WriteJsonl",
     "ReadJsonl",
+    "ReadParquet",
     "FilterExistingEntriesInJsonl",
     "ReadTxtFolder",
     "ReadMarkdownLines",
