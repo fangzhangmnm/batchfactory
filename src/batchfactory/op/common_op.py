@@ -16,7 +16,7 @@ class Filter(FilterOp):
     def __init__(self,criteria:Callable,*keys,consume_rejected=False):
         super().__init__(consume_rejected=consume_rejected)
         self._criteria = criteria
-        self.keys = KeysUtil.make_keys(*keys) if keys is not None else None
+        self.keys = KeysUtil.make_keys(*keys) if keys is not None and len(keys)>0 else None
     def criteria(self, entry):
         if self.keys is not None:
             return self._criteria(*KeysUtil.read_dict(entry.data, self.keys))

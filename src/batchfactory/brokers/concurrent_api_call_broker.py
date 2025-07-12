@@ -56,8 +56,7 @@ class ConcurrentAPICallBroker(ImmediateBroker, ABC):
 
     async def _task_async(self, request: BrokerJobRequest, mock: bool):
         try:
-            async with self.concurrency_semaphore:
-                response = await self._call_api_async(request, mock=mock)
+            response = await self._call_api_async(request, mock=mock)
         except Exception as e:
             print(f"Error processing request {request.job_idx}: {e}")
             response = BrokerJobResponse(
@@ -75,19 +74,32 @@ class ConcurrentAPICallBroker(ImmediateBroker, ABC):
         async with self.global_lock:
             await self._update_statistics(self.pbar, request, response)
 
+    async def _worker(self, queue: asyncio.Queue, mock: bool):
+        while True:
+            request = await queue.get()
+            try:
+                async with self.rate_limiter:
+                    async with self.concurrency_semaphore:
+                        await self._task_async(request, mock=mock)
+            finally:
+                queue.task_done()
+
     async def _process_all_tasks_async(self, requests: Dict[str, BrokerJobRequest], mock: bool):
         requests = list(requests.values())
         if not requests: return
         self.pbar = tqdm(total=len(requests))
         self.concurrency_semaphore = Semaphore(self.concurrency_limit)
         self.rate_limiter = AsyncLimiter(self.rate_limit, 1)
-        tasks = []
+        queue = asyncio.Queue()
+        for request in requests[::self.max_number_per_batch]:
+            queue.put_nowait(request)
         try:
-            for request in requests:
-                async with self.rate_limiter:
-                    task = asyncio.create_task(self._task_async(request, mock))
-                    tasks.append(task)
-            await asyncio.gather(*tasks)
+            workers = [
+                asyncio.create_task(self._worker(queue, mock)) for request in requests
+            ]
+            await queue.join()
+            for w in workers:
+                w.cancel()
         except asyncio.CancelledError:
             print("Processing was cancelled.")
         finally:
@@ -96,6 +108,26 @@ class ConcurrentAPICallBroker(ImmediateBroker, ABC):
             self.rate_limiter = None
             self.pbar = None
             await self._output_and_reset_statistics()
+
+        
+
+
+
+        # tasks = []
+        # try:
+        #     for request in requests:
+        #         async with self.rate_limiter:
+        #             task = asyncio.create_task(self._task_async(request, mock))
+        #             tasks.append(task)
+        #     await asyncio.gather(*tasks)
+        # except asyncio.CancelledError:
+        #     print("Processing was cancelled.")
+        # finally:
+        #     self.pbar.close()
+        #     self.concurrency_semaphore = None
+        #     self.rate_limiter = None
+        #     self.pbar = None
+        #     await self._output_and_reset_statistics()
 
 __all__ = [
     "ConcurrentAPICallBroker",

@@ -5,7 +5,7 @@ import aiofiles,asyncio
 from copy import deepcopy
 from pathlib import Path
 
-COMPACT_ON_RESUME=False
+COMPACT_ON_RESUME=True
 DELETE_NONE=True
 
 class Ledger:
@@ -129,7 +129,7 @@ class Ledger:
         if not os.path.exists(self.path): 
             return
         with jsonlines.open(self.path, 'r') as reader:
-            for item in reader:
+            for item in reader.iter(skip_invalid=True):
                 _deep_update(self._index.setdefault(item['idx'],{}), item, delete_none=True, _deepcopy=True)
 
 

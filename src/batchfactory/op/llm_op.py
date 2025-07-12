@@ -182,7 +182,7 @@ class CountTotalCharacters(OutputOp):
             for key in self.keys:
                 text = entry.data.get(key, "")
                 total_chars += len(text)
-        print(f"[CountTotalCharacters] Total characters in output: {total_chars:,} characters.")
+        print(f"[CountTotalCharacters] Total characters: {total_chars:,} characters.")
 
 @show_in_op_list(highlight=True)
 def AskLLM(prompt:str|PromptMaker,
