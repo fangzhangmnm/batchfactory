@@ -34,12 +34,8 @@ class Broker(ABC):
         self._ledger:Ledger = None
         self._ledger2 = Ledger2(cache_path)
         self.verbose=0
-    def reset(self):
-        # self._ledger.reset()
-        print("Broker.reset() is Deprecated")
-    def resume(self):
-        # self._ledger.resume()
-        print("Broker.resume() is Deprecated")
+    def compact(self):
+        self._ledger2.compact()
     def enqueue(self, requests: Dict[str,BrokerJobRequest]):
         # _check_input_many(requests)
         requests = {k:v for k,v in requests.items() if not self._ledger2.contains(k)}

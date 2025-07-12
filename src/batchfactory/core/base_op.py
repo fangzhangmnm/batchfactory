@@ -26,8 +26,9 @@ class BaseOp(ABC):
     def reset(self):
         "Reset for stateful nodes" # still needed
         pass
-    # def resume(self):
-    #     print("BaseOp.resume() is Depracated")
+    def compact(self):
+        "Finalize and compress the cache"
+        pass
     @abstractmethod
     def pump(self,inputs:Dict[int,Dict[str,Entry]],options:PumpOptions) -> PumpOutput:
         """

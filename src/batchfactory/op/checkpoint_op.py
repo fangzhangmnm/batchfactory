@@ -31,12 +31,12 @@ class CheckpointOp(BaseOp, ABC):
 
     def reset(self):
         super().reset()
-        # self._ledger.reset()
         self.emitted_revs.clear()
 
-    # def resume(self):
-    #     super().resume()
-        # self._ledger.resume()
+    def compact(self):
+        super().compact()
+        self._ledger2.compact()
+
 
     @abstractmethod
     def prepare_input(self, entry:Entry) -> None:

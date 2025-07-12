@@ -18,6 +18,7 @@ import os
 from dataclasses import asdict
 from copy import deepcopy
 from pathlib import Path
+from tqdm.auto import tqdm
 
 class ReaderOp(SourceOp, ABC):
     def __init__(self,
@@ -38,7 +39,7 @@ class ReaderOp(SourceOp, ABC):
     def generate_batch(self)-> Dict[str,Entry]:
         stop = self.offset + self.max_count if self.max_count is not None else None
         entries = {}
-        for idx,json_obj in itt.islice(self._iter_records(), self.offset, stop):
+        for idx,json_obj in tqdm(itt.islice(self._iter_records(), self.offset, stop)):
             entry = Entry(idx=idx)
             if self.keys is not None:
                 entry.data.update(KeysUtil.make_dict(self.keys,KeysUtil.read_dict(json_obj, self.keys)))

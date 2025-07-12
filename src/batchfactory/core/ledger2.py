@@ -38,6 +38,7 @@ class Ledger2:
         ''')
         self.conn.commit()
     def compact(self):
+        # print(f"[Ledger2] Compacting database at {self.path}...")
         self.conn.execute('PRAGMA wal_checkpoint(TRUNCATE);')
         self.conn.commit()
     def update_many_sync(self,updates:Dict,serializer=None):

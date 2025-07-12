@@ -54,13 +54,18 @@ class Graph:
                 dispatch_brokers=False, 
                 mock=False, 
                 max_iterations = 1000, 
-                max_barrier_level:int|None = None):
+                max_barrier_level:int|None = None,
+                verbose:int=0,
+                compact_after_finished:bool = True
+                ):
         executor = self.get_executor()
         return executor.execute(
             dispatch_brokers=dispatch_brokers, 
             mock=mock, 
             max_iterations=max_iterations, 
-            max_barrier_level=max_barrier_level
+            max_barrier_level=max_barrier_level,
+            verbose=verbose,
+            compact_after_finished=compact_after_finished
         )
 
 def summary_graph(title,graph,node_info=None):

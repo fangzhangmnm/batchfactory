@@ -102,14 +102,10 @@ class OpGraphExecutor:
         self.clear_output_cache()
         for node in self.nodes:
             node.reset()
-    def resume(self):
-        for node in self.nodes:
-            self.verbose>0 and print(f"[OpGraphExecutor] Resuming node {node}")
-            # node.resume()
     def get_barrier_levels(self):
         return sorted(set(n.barrier_level for n in self.nodes))
 
-    def execute(self, dispatch_brokers=False, mock=False, max_iterations = 1000, max_barrier_level:int|None = None, verbose=0):
+    def execute(self, dispatch_brokers=False, mock=False, max_iterations = 1000, max_barrier_level:int|None = None, verbose=0, compact_after_finished=True):
         barrier_levels = sorted(barrier_level
             for barrier_level in {n.barrier_level for n in self.nodes} | {1}
             if max_barrier_level is None or barrier_level <= max_barrier_level
@@ -117,7 +113,6 @@ class OpGraphExecutor:
         self.verbose = verbose
         self.verbose>0 and print(f"[OpGraphExecutor] executing with barrier levels: {barrier_levels}")
         self.reset()
-        self.resume()
         first = True
         iterations = 0
         current_barrier_level_idx = 0
@@ -140,6 +135,11 @@ class OpGraphExecutor:
                 current_barrier_level_idx = min(current_barrier_level_idx, barrier_levels.index(emit_level))
             if iterations >= max_iterations:
                 break
+        
+        if compact_after_finished:
+            for node in self.nodes:
+                node.compact()
+
         # returns the output of output node
         output_objects = []
         for node in self.nodes:
