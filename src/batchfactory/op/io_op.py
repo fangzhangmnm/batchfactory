@@ -39,6 +39,7 @@ class ReaderOp(SourceOp, ABC):
     def generate_batch(self)-> Dict[str,Entry]:
         stop = self.offset + self.max_count if self.max_count is not None else None
         entries = {}
+        print(f"[{self.__class__.__name__}]: Reading entries from {self._args_repr()} with offset={self.offset}, max_count={self.max_count}.")
         for idx,json_obj in tqdm(itt.islice(self._iter_records(), self.offset, stop)):
             entry = Entry(idx=idx)
             if self.keys is not None:
@@ -176,38 +177,39 @@ class WriteJsonl(OutputOp):
         record['rev'] = entry.rev
         return record
 
-
-@show_in_op_list
-class FilterExistingEntriesInJsonl(BatchOp):
-    """
-    Filter out entries that have already been processed and exist in a given JSONL archive.
-    - Only entries with non-null values for all specified keys are considered processed.
-    """
-    def __init__(self, 
-                    jsonl_path: str|Path, 
-                    keys: List[str],
-    ):
-        super().__init__()
-        self.jsonl_path = jsonl_path
-        self.keys = KeysUtil.make_keys(keys) if keys else None
-    def _args_repr(self): return ReprUtil.repr_path(self.jsonl_path)
-    def _get_processed(self) -> Set[str]:
-        processed_idxs = set()
-        if os.path.exists(self.jsonl_path):
-            with jsonlines.open(self.jsonl_path, 'r') as reader:
-                for record in reader:
-                    idx = record['idx']
-                    if self.keys is not None:
-                        if any(record.get(k) is None for k in self.keys):
-                            continue
-                    processed_idxs.add(idx)
-        return processed_idxs
-    def update_batch(self, batch: Dict[str, Entry]) -> Dict[str, Entry]:
-        processed_idxs = self._get_processed()
-        filtered_batch = {idx: entry for idx, entry in batch.items() if idx not in processed_idxs}
-        if len(filtered_batch) < len(batch):
-            print(f"[FilterExistingEntriesInJsonl]: Filtered {len(batch) - len(filtered_batch)} entries from {len(batch)} entries.")
-        return filtered_batch
+# @show_in_op_list
+# class FilterExistingEntriesInJsonl(BatchOp):
+#     """
+#     Filter out entries that have already been processed and exist in a given JSONL archive.
+#     - Only entries with non-null values for all specified keys are considered processed.
+#     """
+#     def __init__(self, 
+#                     jsonl_path: str|Path, 
+#                     keys: List[str],
+#     ):
+#         super().__init__()
+#         self.jsonl_path = jsonl_path
+#         self.keys = KeysUtil.make_keys(keys) if keys else None
+#     def _args_repr(self): return ReprUtil.repr_path(self.jsonl_path)
+#     def _get_processed(self) -> Set[str]:
+#         processed_idxs = set()
+#         if os.path.exists(self.jsonl_path):
+#             with jsonlines.open(self.jsonl_path, 'r') as reader:
+#                 for record in reader:
+#                     idx = record['idx']
+#                     if self.keys is not None:
+#                         if any(record.get(k) is None for k in self.keys):
+#                             continue
+#                     processed_idxs.add(idx)
+#         return processed_idxs
+#     def update_batch(self, batch: Dict[str, Entry]) -> Iterator[Entry]:
+#         processed_idxs = self._get_processed()
+#         n_remaining = 0 
+#         for idx, entry in batch.items():
+#             if idx not in processed_idxs:
+#                 n_remaining += 1
+#                 yield entry
+#         print(f"[FilterExistingEntriesInJsonl]: Filtered {len(batch) - n_remaining} entries from {len(batch)} entries.")
 
 def generate_idx_from_strings(strings: List[str]) -> str:
     def escape_string(s):
@@ -602,7 +604,6 @@ __all__ = [
     "WriteJsonl",
     "ReadJsonl",
     "ReadParquet",
-    "FilterExistingEntriesInJsonl",
     "ReadTxtFolder",
     "ReadMarkdownLines",
     "WriteMarkdownLines",

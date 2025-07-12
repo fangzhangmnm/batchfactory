@@ -5,6 +5,7 @@ from .op_graph import OpGraphEdge, Graph
 
 from typing import List, Tuple, NamedTuple, Dict, Set
 from copy import deepcopy
+import time
 
 
 class OpGraphExecutor:
@@ -84,7 +85,8 @@ class OpGraphExecutor:
         """
         max_emitted_barrier_level = None
         for node in self.nodes:
-            self.verbose>0 and print(f"[OpGraphExecutor] Pumping node {node} with barrier level {node.barrier_level}")
+            self.verbose>=2 and print(f"[OpGraphExecutor] Pumping node {node} with barrier level {node.barrier_level}")
+            time_start = time.perf_counter()
             try:
                 if options.max_barrier_level is not None and node.barrier_level > options.max_barrier_level:
                     continue
@@ -92,8 +94,10 @@ class OpGraphExecutor:
                 if did_emit:
                     max_emitted_barrier_level = max(max_emitted_barrier_level or float('-inf'), node.barrier_level)
             except Exception as e:
-                self.verbose>0 and print(f"Exception while pumping node {node}: {e}")
+                print(f"Exception while pumping node {node}: {e}")
                 raise e
+            time_end = time.perf_counter()
+            self._time_prof[repr(node)] = self._time_prof.get(repr(node), 0) + (time_end - time_start)
         return max_emitted_barrier_level
     def clear_output_cache(self):
         self.output_revs.clear()
@@ -111,11 +115,12 @@ class OpGraphExecutor:
             if max_barrier_level is None or barrier_level <= max_barrier_level
         )
         self.verbose = verbose
-        self.verbose>0 and print(f"[OpGraphExecutor] executing with barrier levels: {barrier_levels}")
+        self.verbose>=2 and print(f"[OpGraphExecutor] executing with barrier levels: {barrier_levels}")
         self.reset()
         first = True
         iterations = 0
         current_barrier_level_idx = 0
+        self._time_prof = {}
         while True:
             current_barrier_level = barrier_levels[current_barrier_level_idx]
             emit_level = self.pump(PumpOptions(
@@ -136,9 +141,15 @@ class OpGraphExecutor:
             if iterations >= max_iterations:
                 break
         
+        time_start = time.perf_counter()
         if compact_after_finished:
             for node in self.nodes:
                 node.compact()
+        time_end = time.perf_counter()
+        self._time_prof["compact"] = time_end - time_start
+
+        if self.verbose >= 1:
+            self.show_node_times()
 
         # returns the output of output node
         output_objects = []
@@ -153,6 +164,10 @@ class OpGraphExecutor:
         else:
             return None
         
+    def show_node_times(self):
+        print("[OpGraphExecutor] Node times:")
+        for name, time in sorted(self._time_prof.items(), key=lambda x: x[1], reverse=True):
+            print(f"    {name}: {time:.4f} seconds")
 
     def get_node_output(self, node:BaseOp, port:int=None)->Dict[int,Dict[str,Entry]]|Dict[str,Entry]:
         if port is None:

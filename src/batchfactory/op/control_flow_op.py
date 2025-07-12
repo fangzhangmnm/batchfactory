@@ -4,7 +4,7 @@ from ..lib.utils import hash_json, KeysUtil, CollectionsUtil, ReprUtil
 from ._registery import show_in_op_list
 
 
-from typing import List, Tuple, Dict, Callable, TYPE_CHECKING
+from typing import List, Tuple, Dict, Callable, TYPE_CHECKING, Iterator
 from copy import deepcopy
 from abc import ABC, abstractmethod
 
@@ -232,11 +232,11 @@ def _explode_entry_by_lists(
                     master_idx_key: str | None = None,
                     list_idx_key: str | None = None,
                     keep_others: bool = None,
-                    ) -> Dict[str, Entry]:
+                    ) -> Iterator[Entry]:
     """Explode an entry to multiple entries based on the router."""
     if keep_others is None: raise ValueError("keep_others must be specified")
     in_keys,out_keys = KeysUtil.make_keys_map(in_keys, out_keys)
-    output_entries = {}
+    # output_entries = {}
     in_lists = KeysUtil.read_dict(entry.data, in_keys)
     in_lists = CollectionsUtil.broadcast_lists(in_lists)
     in_tuples = CollectionsUtil.pivot_cascaded_list(in_lists)
@@ -253,8 +253,9 @@ def _explode_entry_by_lists(
             new_data[list_idx_key] = list_idx
         spawn_idx = hash_json(new_data)
         spawn_entry = Entry(idx=spawn_idx, data=deepcopy(new_data))
-        output_entries[spawn_idx] = spawn_entry
-    return output_entries
+        yield spawn_entry
+        # output_entries[spawn_idx] = spawn_entry
+    # return output_entries
 
 @show_in_op_list
 class ExplodeList(BatchOp):
@@ -273,16 +274,14 @@ class ExplodeList(BatchOp):
         self.list_idx_key = list_idx_key
         self.keep_others = keep_others
     def _args_repr(self): return ReprUtil.repr_dict_from_tuples(self.in_keys, self.out_keys)
-    def update_batch(self, batch: Dict[str, Entry]) -> Dict[str, Entry]:
-        output_entries = {}
+    def update_batch(self, batch: Dict[str, Entry]) -> Iterator[Entry]:
         for entry in batch.values():
-            output_entries.update(_explode_entry_by_lists(entry, 
-                                                self.in_keys, self.out_keys,
-                                                master_idx_key=self.master_idx_key,
-                                                list_idx_key=self.list_idx_key,
-                                                keep_others=self.keep_others
-                                                ))
-        return output_entries
+            yield from _explode_entry_by_lists(entry,
+                                        self.in_keys, self.out_keys,
+                                        master_idx_key=self.master_idx_key,
+                                        list_idx_key=self.list_idx_key,
+                                        keep_others=self.keep_others
+                                        )
 
 @show_in_op_list
 class SpawnFromList(SpawnOp):
@@ -301,16 +300,18 @@ class SpawnFromList(SpawnOp):
         self.list_idx_key = list_idx_key
         self.spawn_idx_list_key = spawn_idx_list_key
     def _args_repr(self): return ReprUtil.repr_dict_from_tuples(self.in_lists_keys, self.out_items_keys)
-    def spawn_entries(self, entry: Entry) -> Dict[str, Entry]:
+    def spawn_entries(self, entry: Entry) -> Iterator[Entry]:
         """Entry->{new_idx:new_Entry}"""
-        output_entries = _explode_entry_by_lists(entry, self.in_lists_keys, self.out_items_keys,
+        spawn_idx_list = []
+        for spawn_entry in _explode_entry_by_lists(entry,
+                                        self.in_lists_keys, self.out_items_keys,
                                         master_idx_key=self.master_idx_key,
                                         list_idx_key=self.list_idx_key,
-                                        keep_others=False 
-                                        )
+                                        keep_others=False):
+            spawn_idx_list.append(spawn_entry.idx)
+            yield spawn_entry
         if self.spawn_idx_list_key is not None:
-            entry.data[self.spawn_idx_list_key] = list(output_entries.keys())
-        return output_entries
+            entry.data[self.spawn_idx_list_key] = spawn_idx_list
             
 @show_in_op_list
 class CollectAllToList(CollectAllOp):

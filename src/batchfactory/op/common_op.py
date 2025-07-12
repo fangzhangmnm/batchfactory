@@ -3,7 +3,8 @@ from ..lib.utils import KeysUtil, ReprUtil
 from ..core import BrokerJobStatus, Entry
 from ._registery import show_in_op_list
 
-from typing import List,Dict, Callable, Any
+from typing import List,Dict, Callable, Any, Iterator
+from itertools import islice
 import random
 
 @show_in_op_list
@@ -33,6 +34,24 @@ class FilterFailedEntries(FilterOp):
     def _args_repr(self): return ReprUtil.repr_str(self.status_key)
     def criteria(self, entry):
         return BrokerJobStatus(entry.data[self.status_key]) != BrokerJobStatus.FAILED
+    
+@show_in_op_list
+class ExcludeIdx(FilterOp):
+    """Removing entries whose idx is in a given set"""
+    def __init__(self, idx_set: set, consume_rejected=False):
+        super().__init__(consume_rejected=consume_rejected)
+        self.idx_set = set(idx_set)
+    def criteria(self, entry):
+        return entry.idx not in self.idx_set
+    
+@show_in_op_list
+class IncludeIdx(FilterOp):
+    """Keeping entries whose idx is in a given set"""
+    def __init__(self, idx_set: set, consume_rejected=False):
+        super().__init__(consume_rejected=consume_rejected)
+        self.idx_set = set(idx_set)
+    def criteria(self, entry):
+        return entry.idx in self.idx_set
 
 @show_in_op_list
 class FilterMissingFields(FilterOp):
@@ -131,12 +150,12 @@ class Shuffle(BatchOp):
     def __init__(self,*, seed, barrier_level = 1):
         super().__init__(consume_all_batch=True, barrier_level=barrier_level)
         self.seed = seed
-    def update_batch(self, entries: Dict[str, Entry]) -> Dict[str, Entry]:
-        entries_list = list(entries.values())
+    def update_batch(self, entries: Dict[str, Entry]) -> Iterator[Entry]:
+        keys = list(entries.keys())
         rng = random.Random(self.seed)
-        rng.shuffle(entries_list)
-        entries = {entry.idx: entry for entry in entries_list}
-        return entries
+        rng.shuffle(keys)
+        for key in keys:
+            yield entries[key]
     
 @show_in_op_list
 class TakeFirstN(BatchOp):
@@ -146,11 +165,9 @@ class TakeFirstN(BatchOp):
         self.n = n
         self.offset = offset
     def _args_repr(self): return f"n={self.n}"
-    def update_batch(self, entries: Dict[str, Entry]) -> Dict[str, Entry]:
-        entries_list = list(entries.values())
-        entries_list = entries_list[self.offset:self.offset+self.n]
-        entries = {entry.idx: entry for entry in entries_list}
-        return entries
+    def update_batch(self, entries: Dict[str, Entry]) -> Iterator[Entry]:
+        return islice(entries.values(), self.offset, self.offset + self.n)
+
     
 @show_in_op_list
 class Sort(BatchOp):
@@ -171,16 +188,16 @@ class Sort(BatchOp):
                 return self.custom_func(entry.data)
         else:
             return KeysUtil.read_dict(entry.data, self.keys)
-    def update_batch(self, entries: Dict[str, Entry]) -> Dict[str, Entry]:
-        entries_list = list(entries.values())
-        entries_list = sorted(entries_list, key=self._key, reverse=self.reverse)
-        return {entry.idx: entry for entry in entries_list}
+    def update_batch(self, entries: Dict[str, Entry]) -> Iterator[Entry]:
+        return sorted(entries.values(), key=self._key, reverse=self.reverse)
     
 
 __all__ = [
     "Filter",
     "FilterFailedEntries",
     "FilterMissingFields",
+    "ExcludeIdx",
+    "IncludeIdx",
     "Apply",
     "MapField",
     "SetField",

@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
-from typing import Union, List, Any, Tuple, Iterator, TYPE_CHECKING, Dict, NamedTuple, Set
+from typing import Union, List, Any, Tuple, Iterator, TYPE_CHECKING, Dict, NamedTuple, Set, Iterator
 from .entry import Entry
 from ..lib.utils import _make_list_of_list, ReprUtil
 if TYPE_CHECKING:
@@ -167,7 +167,7 @@ class BatchOp(BaseOp, ABC):
         super().__init__(n_in_ports=1, n_out_ports=1, barrier_level=barrier_level)
         self.consume_all_batch = consume_all_batch
     @abstractmethod
-    def update_batch(self, batch: Dict[str, Entry]) -> Dict[str, Entry]:
+    def update_batch(self, batch: Dict[str, Entry]) -> Iterator[Entry]:
         "{idx:Entry} -> {idx:Entry}"
         pass
     def pump(self, inputs, options: PumpOptions) -> PumpOutput:
@@ -175,7 +175,7 @@ class BatchOp(BaseOp, ABC):
         input_batch = inputs.get(0, {})
         if self.consume_all_batch:
             consumed[0].update(input_batch.keys())
-        for entry in self.update_batch(input_batch).values():
+        for entry in self.update_batch(input_batch):
             outputs[0][entry.idx] = entry
             consumed[0].add(entry.idx)
             did_emit = True
@@ -188,10 +188,10 @@ class OutputOp(BatchOp, ABC):
     @abstractmethod
     def output_batch(self, batch: Dict[str, Entry]) -> None:
         pass
-    def update_batch(self, batch: Dict[str, Entry]) -> Dict[str, Entry]:
+    def update_batch(self, batch: Dict[str, Entry]) -> Iterator[Entry]:
         if not batch: return {}
         self.output_batch(batch)
-        return {**batch}
+        return batch.values()
     def get_output(self)->Any:
         "If the OutputOp outputs a python object, return it."
         pass
@@ -201,15 +201,13 @@ class SpawnOp(BaseOp, ABC):
     def __init__(self):
         super().__init__(n_in_ports=1, n_out_ports=2, barrier_level=0)
     @abstractmethod
-    def spawn_entries(self, entry: Entry) -> Dict[str, Entry]:
-        """Entry->{new_idx:new_Entry}"""
+    def spawn_entries(self, entry: Entry) -> Iterator[Entry]:
         pass
     def pump(self, inputs, options: PumpOptions) -> PumpOutput:
         outputs, consumed, did_emit = {0:{}, 1:{}}, {0:set()}, False
         for entry in inputs.get(0,{}).values():
-            spawn_batch = self.spawn_entries(entry)
-            for spawn_idx, spawn_entry in spawn_batch.items():
-                outputs[1][spawn_idx] = spawn_entry
+            for spawn_entry in self.spawn_entries(entry):
+                outputs[1][spawn_entry.idx] = spawn_entry
             outputs[0][entry.idx] = entry
             consumed[0].add(entry.idx)
             did_emit = True
