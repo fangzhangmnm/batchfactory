@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 
 class PumpOutput(NamedTuple):
     outputs:Dict[int,Dict[str,Entry]] # {out_port: {entry_idx: Entry}}
-    consumed:Dict[int,Set[str]] # {in_port: set of consumed entry idxs}
+    consumed:Dict[int,Set[str]|bool] # {in_port: set of consumed entry idxs}. if true, all entries are consumed
     did_emit:bool # signaling if need to update the downstream nodes
     
 class PumpOptions(NamedTuple):
@@ -173,12 +173,13 @@ class BatchOp(BaseOp, ABC):
     def pump(self, inputs, options: PumpOptions) -> PumpOutput:
         outputs, consumed, did_emit = {0:{}}, {0:set()}, False
         input_batch = inputs.get(0, {})
-        if self.consume_all_batch:
-            consumed[0].update(input_batch.keys())
         for entry in self.update_batch(input_batch):
             outputs[0][entry.idx] = entry
-            consumed[0].add(entry.idx)
+            if not self.consume_all_batch:
+                consumed[0].add(entry.idx)
             did_emit = True
+        if self.consume_all_batch:
+            consumed[0]=True
         return PumpOutput(outputs=outputs, consumed=consumed, did_emit=did_emit)
     
 class OutputOp(BatchOp, ABC):

@@ -6,6 +6,8 @@ from .op_graph import OpGraphEdge, Graph
 from typing import List, Tuple, NamedTuple, Dict, Set
 from copy import deepcopy
 import time
+from collections import defaultdict
+
 
 
 class OpGraphExecutor:
@@ -25,10 +27,19 @@ class OpGraphExecutor:
     def _pump_node(self,node:BaseOp,options:PumpOptions)->bool:
         if options.max_barrier_level is not None and node.barrier_level > options.max_barrier_level:
             return False
+        time_start = time.perf_counter()
         inputs:Dict[int,Dict[str,Entry]] = self._collect_node_inputs(node, use_deepcopy=True)
+        self._time_prof[f"collect node inputs for {node}"] += time.perf_counter() - time_start
+        time_start = time.perf_counter()
         pump_output:PumpOutput = node.pump(inputs=inputs, options=options)
+        self._time_prof[f"pump node {node}"] += time.perf_counter() - time_start
+        self._time_start = time.perf_counter()
         self._update_node_outputs(node, pump_output.outputs)
+        self._time_prof[f"update outputs for {node}"] += time.perf_counter() - self._time_start
+        self._time_start = time.perf_counter()
+        del inputs
         self._consume_node_inputs(node, pump_output.consumed)
+        self._time_prof[f"consume inputs for {node}"] += time.perf_counter() - self._time_start
         return pump_output.did_emit
 
     def incoming_edge(self,node,port)->OpGraphEdge:
@@ -51,17 +62,16 @@ class OpGraphExecutor:
                 inputs.setdefault(edge.target_port, {})[idx] = entry
         return inputs
     
-    def _consume_node_inputs(self,node,consumed:Dict[int,Set[str]]):
+    def _consume_node_inputs(self,node,consumed:Dict[int,Set[str]|bool]):
         for port, idxs in consumed.items():
-            for idx in idxs:
-                self._consume_node_input(node, port, idx)
-    
-    def _consume_node_input(self,node,port,idx):
-        edge = self.incoming_edge(node, port)
-        if edge is None: return
-        src_entries = self.output_cache.setdefault((edge.source, edge.source_port), {})
-        if idx in src_entries:
-            del src_entries[idx]
+            edge = self.incoming_edge(node, port)
+            if edge is None: continue
+            src_entries = self.output_cache.setdefault((edge.source, edge.source_port), {})
+            if idxs is True:
+                src_entries.clear()  # consume all entries from this port
+            elif isinstance(idxs, set):
+                src_entries = {idx: entry for idx, entry in src_entries.items() if idx not in idxs}
+                self.output_cache[(edge.source, edge.source_port)] = src_entries
 
     def _update_node_outputs(self,node,outputs:Dict[int,Dict[str,Entry]]):
         for port,batch in outputs.items():
@@ -86,7 +96,7 @@ class OpGraphExecutor:
         max_emitted_barrier_level = None
         for node in self.nodes:
             self.verbose>=2 and print(f"[OpGraphExecutor] Pumping node {node} with barrier level {node.barrier_level}")
-            time_start = time.perf_counter()
+            # time_start = time.perf_counter()
             try:
                 if options.max_barrier_level is not None and node.barrier_level > options.max_barrier_level:
                     continue
@@ -96,8 +106,7 @@ class OpGraphExecutor:
             except Exception as e:
                 print(f"Exception while pumping node {node}: {e}")
                 raise e
-            time_end = time.perf_counter()
-            self._time_prof[repr(node)] = self._time_prof.get(repr(node), 0) + (time_end - time_start)
+            # self._time_prof[repr(node)] += time.perf_counter() - time_start
         return max_emitted_barrier_level
     def clear_output_cache(self):
         self.output_revs.clear()
@@ -116,11 +125,13 @@ class OpGraphExecutor:
         )
         self.verbose = verbose
         self.verbose>=2 and print(f"[OpGraphExecutor] executing with barrier levels: {barrier_levels}")
+        self._time_prof = defaultdict(float)
+        time_start = time.perf_counter()
         self.reset()
+        self._time_prof["reset"] += time.perf_counter() - time_start
         first = True
         iterations = 0
         current_barrier_level_idx = 0
-        self._time_prof = {}
         while True:
             current_barrier_level = barrier_levels[current_barrier_level_idx]
             emit_level = self.pump(PumpOptions(
@@ -145,8 +156,7 @@ class OpGraphExecutor:
         if compact_after_finished:
             for node in self.nodes:
                 node.compact()
-        time_end = time.perf_counter()
-        self._time_prof["compact"] = time_end - time_start
+        self._time_prof["compact"] += time.perf_counter() - time_start
 
         if self.verbose >= 1:
             self.show_node_times()
@@ -166,8 +176,10 @@ class OpGraphExecutor:
         
     def show_node_times(self):
         print("[OpGraphExecutor] Node times:")
+        average_time = sum(self._time_prof.values()) / len(self._time_prof) if self._time_prof else 0
         for name, time in sorted(self._time_prof.items(), key=lambda x: x[1], reverse=True):
-            print(f"    {name}: {time:.4f} seconds")
+            if time>average_time*0.1:
+                print(f"    {name}: {time:.4f} seconds")
 
     def get_node_output(self, node:BaseOp, port:int=None)->Dict[int,Dict[str,Entry]]|Dict[str,Entry]:
         if port is None:
