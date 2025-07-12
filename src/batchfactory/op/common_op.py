@@ -141,13 +141,14 @@ class Shuffle(BatchOp):
 @show_in_op_list
 class TakeFirstN(BatchOp):
     """Takes the first N entries from the batch. discards the rest."""
-    def __init__(self, n: int,*, barrier_level = 1):
+    def __init__(self, n: int,*, offset=0, barrier_level = 1):
         super().__init__(consume_all_batch=True, barrier_level=barrier_level)
         self.n = n
+        self.offset = offset
     def _args_repr(self): return f"n={self.n}"
     def update_batch(self, entries: Dict[str, Entry]) -> Dict[str, Entry]:
         entries_list = list(entries.values())
-        entries_list = entries_list[:self.n]
+        entries_list = entries_list[self.offset:self.offset+self.n]
         entries = {entry.idx: entry for entry in entries_list}
         return entries
     

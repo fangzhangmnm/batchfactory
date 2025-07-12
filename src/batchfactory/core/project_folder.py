@@ -83,7 +83,7 @@ class ProjectFolder:
         return _current_project.get()
     def get_default_broker(self, broker_type:type):
         if broker_type not in self.default_brokers:
-            self.default_brokers[broker_type] = broker_type(self["broker_cache"] / f"{broker_type.__name__}.jsonl")
+            self.default_brokers[broker_type] = broker_type(self["broker_cache"] / f"{broker_type.__name__}")
         return self.default_brokers[broker_type]
     def set_default_broker(self, broker:Any):
         if type(broker) in self.default_brokers:
@@ -98,7 +98,7 @@ class ProjectFolder:
             op_name = type(op).__name__
         count = self.op_name_count.get(op_name, 0)
         self.op_name_count[op_name] = count + 1
-        return self.resolve_path(f"op_cache/{op_name}_{count}.jsonl")
+        return self.resolve_path(f"op_cache/{op_name}_{count}")
 
 
 def get_user_consent(prompt,consent)->bool:

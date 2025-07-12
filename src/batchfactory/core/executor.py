@@ -12,6 +12,7 @@ class OpGraphExecutor:
         self.reset_graph(graph)
         self.output_cache:Dict[Tuple[BaseOp,int],Dict[str,Entry]] = {}
         self.output_revs:Dict[Tuple[BaseOp,int],Dict[str,int]] = {}  # used to reject entry with the same revision emitted twice in the same run
+        self.verbose=0
     def reset_graph(self, graph:Graph):
         self.graph = graph
     @property
@@ -83,6 +84,7 @@ class OpGraphExecutor:
         """
         max_emitted_barrier_level = None
         for node in self.nodes:
+            self.verbose>0 and print(f"[OpGraphExecutor] Pumping node {node} with barrier level {node.barrier_level}")
             try:
                 if options.max_barrier_level is not None and node.barrier_level > options.max_barrier_level:
                     continue
@@ -90,7 +92,7 @@ class OpGraphExecutor:
                 if did_emit:
                     max_emitted_barrier_level = max(max_emitted_barrier_level or float('-inf'), node.barrier_level)
             except Exception as e:
-                print(f"Exception while pumping node {node}: {e}")
+                self.verbose>0 and print(f"Exception while pumping node {node}: {e}")
                 raise e
         return max_emitted_barrier_level
     def clear_output_cache(self):
@@ -102,15 +104,18 @@ class OpGraphExecutor:
             node.reset()
     def resume(self):
         for node in self.nodes:
-            node.resume()
+            self.verbose>0 and print(f"[OpGraphExecutor] Resuming node {node}")
+            # node.resume()
     def get_barrier_levels(self):
         return sorted(set(n.barrier_level for n in self.nodes))
 
-    def execute(self, dispatch_brokers=False, mock=False, max_iterations = 1000, max_barrier_level:int|None = None):
+    def execute(self, dispatch_brokers=False, mock=False, max_iterations = 1000, max_barrier_level:int|None = None, verbose=0):
         barrier_levels = sorted(barrier_level
             for barrier_level in {n.barrier_level for n in self.nodes} | {1}
             if max_barrier_level is None or barrier_level <= max_barrier_level
         )
+        self.verbose = verbose
+        self.verbose>0 and print(f"[OpGraphExecutor] executing with barrier levels: {barrier_levels}")
         self.reset()
         self.resume()
         first = True

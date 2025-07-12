@@ -39,12 +39,12 @@ class BrokerOp(CheckpointOp,ABC):
             self.status_key = status_key
             self.failure_behavior = failure_behavior
             self.job_idx_key = job_idx_key
-    def reset(self):
-        super().reset()
-        self.broker.reset()
-    def resume(self):
-        super().resume()
-        self.broker.resume()
+    # def reset(self):
+    #     super().reset()
+        # self.broker.reset()
+    # def resume(self):
+    #     super().resume()
+        # self.broker.resume()
     def prepare_input(self, entry: Entry) -> None:
         entry.data[self.status_key] = BrokerJobStatus.QUEUED.value
         entry.data[self.job_idx_key] = self.generate_job_idx(entry)

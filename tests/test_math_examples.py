@@ -73,7 +73,7 @@ def test_Barrier(tmp_path):
     # sort [3,5,4,2,1,6]
     g = bf.Graph()
     g |= FromList([3,5,4,2,1,6],output_key="n")
-    g1 = CheckPoint(project["cache/checkpoint.jsonl"], barrier_level=1)
+    g1 = CheckPoint(project["cache/checkpoint"], barrier_level=1)
     g |= If(lambda data: data['n'] < 4, g1)
     g |= Sort("n",barrier_level=2)
     g |= ToList("n")

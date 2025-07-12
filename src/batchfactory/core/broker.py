@@ -5,6 +5,7 @@ from enum import Enum
 
 from ..lib.utils import _to_record, _to_BaseModel
 from .ledger import Ledger
+from .ledger2 import Ledger2
 
 class BrokerJobStatus(str,Enum):
     QUEUED = "queued"
@@ -30,16 +31,19 @@ class Broker(ABC):
     def __init__(self, cache_path: str, request_cls:type[BaseModel]=None, response_cls:type[BaseModel]=None):
         self.request_cls = request_cls
         self.response_cls = response_cls
-        self._ledger = Ledger(cache_path)
+        self._ledger:Ledger = None
+        self._ledger2 = Ledger2(cache_path)
         self.verbose=0
     def reset(self):
-        self._ledger.reset()
+        # self._ledger.reset()
+        print("Broker.reset() is Deprecated")
     def resume(self):
-        self._ledger.resume()
+        # self._ledger.resume()
+        print("Broker.resume() is Deprecated")
     def enqueue(self, requests: Dict[str,BrokerJobRequest]):
-        _check_input_many(requests)
-        requests = {k:v for k,v in requests.items() if not self._ledger.contains(k)}
-        self._ledger.append_many(requests,
+        # _check_input_many(requests)
+        requests = {k:v for k,v in requests.items() if not self._ledger2.contains(k)}
+        self._ledger2.update_many_sync(requests,
                             serializer = lambda r: {
                                 "idx": r.job_idx,
                                 "status": BrokerJobStatus.QUEUED.value,
@@ -47,10 +51,10 @@ class Broker(ABC):
                                 "meta": r.meta or {},
                             })
     def dequeue(self, job_idxs:Set):
-        self._ledger.remove_many(job_idxs)
+        self._ledger2.remove_many(job_idxs)
 
     def get_job_responses(self)->Dict[str,BrokerJobResponse]:
-        return self._ledger.filter_many(
+        return self._ledger2.filter_many(
             lambda x: x.status.is_terminal(),
             builder=lambda record: BrokerJobResponse(
                     job_idx=record["idx"],
@@ -62,7 +66,7 @@ class Broker(ABC):
     
     def get_job_requests(self, status:Iterable[BrokerJobStatus]|BrokerJobStatus)->Dict[str,BrokerJobRequest]:
         if isinstance(status,(BrokerJobStatus,str)): status = [status]
-        return self._ledger.filter_many(
+        return self._ledger2.filter_many(
             lambda x: x.status in status,
             builder=lambda record: BrokerJobRequest(
                 job_idx=record["idx"],
@@ -73,7 +77,7 @@ class Broker(ABC):
         )
     
     def __repr__(self):
-        return f"{self.__class__.__name__}({self._ledger.path})"
+        return f"{self.__class__.__name__}({self._ledger2.path})"
 
 class DeferredBroker(Broker, ABC):
     @abstractmethod

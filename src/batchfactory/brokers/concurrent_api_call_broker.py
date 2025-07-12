@@ -65,7 +65,7 @@ class ConcurrentAPICallBroker(ImmediateBroker, ABC):
                 response_object=None,
                 meta={**(request.meta or {}), "error": str(e)}
             )
-        await self._ledger.update_one_async({
+        await self._ledger2.update_one_async({
             "idx": request.job_idx,
             "status": response.status.value,
             "response": response.response_object.model_dump() if response.response_object else None,
@@ -95,7 +95,7 @@ class ConcurrentAPICallBroker(ImmediateBroker, ABC):
             queue.put_nowait(request)
         try:
             workers = [
-                asyncio.create_task(self._worker(queue, mock)) for request in requests
+                asyncio.create_task(self._worker(queue, mock)) for _ in range(self.concurrency_limit)
             ]
             await queue.join()
             for w in workers:

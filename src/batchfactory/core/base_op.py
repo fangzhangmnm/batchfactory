@@ -24,11 +24,10 @@ class BaseOp(ABC):
         self.barrier_level = barrier_level # if True, wait for all other ops of lower barrier level finish before pumping
         self._tag = None
     def reset(self):
-        "Reset for stateful nodes"
+        "Reset for stateful nodes" # still needed
         pass
-    def resume(self):
-        """Resume the state from cache"""
-        pass
+    # def resume(self):
+    #     print("BaseOp.resume() is Depracated")
     @abstractmethod
     def pump(self,inputs:Dict[int,Dict[str,Entry]],options:PumpOptions) -> PumpOutput:
         """
