@@ -115,13 +115,15 @@ class ReadJsonl(ReaderOp):
         self.hash_keys = KeysUtil.make_keys(hash_keys) if hash_keys is not None else None
     def _args_repr(self): return ReprUtil.repr_glob(self.glob_str)
     def _estimate_size(self) -> int:
+        total_size = 0
         for path in sorted(glob(self.glob_str)):
             if path.endswith('.jsonl'):
-                return self._estimate_jsonl_size(path)
+                total_size+=self._estimate_jsonl_size(path)
             elif path.endswith('.json'):
-                return self._estimate_json_size(path)
+                total_size+=self._estimate_json_size(path)
             else:
                 raise ValueError(f"Unsupported file format: {path}. Only .jsonl and .json files are supported.")
+        return total_size
     def _iter_record_proxy(self):
         for path in sorted(glob(self.glob_str)):
             if path.endswith('.jsonl'):
@@ -187,11 +189,13 @@ class ReadParquet(ReaderOp):
         self.hash_keys = KeysUtil.make_keys(hash_keys) if hash_keys is not None else None
     def _args_repr(self): return ReprUtil.repr_glob(self.glob_str)
     def _estimate_size(self):
+        total_size = 0
         for path in sorted(glob(self.glob_str)):
             if path.endswith('.parquet'):
-                return self._estimate_parquet_size(path)
+                total_size += self._estimate_parquet_size(path)
             else:
                 raise ValueError(f"Unsupported file format: {path}. Only .parquet files are supported.")
+        return total_size
     def _iter_record_proxy(self) -> Iterator[Any]:
         for path in sorted(glob(self.glob_str)):
             if path.endswith('.parquet'):
