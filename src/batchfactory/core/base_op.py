@@ -145,15 +145,13 @@ class SourceOp(BaseOp, ABC):
         super().__init__(n_in_ports=0, n_out_ports=1, barrier_level=0)
         self.fire_once = fire_once
     @abstractmethod
-    def generate_batch(self)-> Dict[str, Entry]:
-        "output:{idx:Entry}"
+    def generate_batch(self)-> Iterator[Entry]:
         pass
     def pump(self, inputs, options: PumpOptions) -> PumpOutput:
         outputs, consumed, did_emit = {0:{}}, {0:set()}, False
         if self.fire_once and not options.reload_inputs:
             return PumpOutput(outputs=outputs, consumed=consumed, did_emit=did_emit)
-        batch = self.generate_batch()
-        for entry in batch.values():
+        for entry in self.generate_batch():
             outputs[0][entry.idx] = entry
             consumed[0].add(entry.idx)
             did_emit = True

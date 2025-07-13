@@ -19,128 +19,240 @@ from dataclasses import asdict
 from copy import deepcopy
 from pathlib import Path
 from tqdm.auto import tqdm
+import numpy as np
+
+# class ReaderOp(SourceOp, ABC):
+#     def __init__(self,
+#                     keys: List[str]|None,
+#                     *,
+#                     offset: int = 0,
+#                     max_count: int = None,
+#                     fire_once: bool = True
+#                     ):
+#         super().__init__(fire_once=fire_once)
+#         self.keys = KeysUtil.make_keys(keys) if keys is not None else None
+#         self.offset = offset
+#         self.max_count = max_count
+#     @abstractmethod
+#     def _iter_raw_records(self) -> Iterator[Tuple[str,Dict]]:
+#         """Abstract method to iterate over records in the data source."""
+#         pass
+#     def generate_batch(self)-> Iterator[Entry]:
+#         stop = self.offset + self.max_count if self.max_count is not None else None
+#         n_read = 0
+#         print(f"[{self.__class__.__name__}]: Reading entries from {self._args_repr()} with offset={self.offset}, max_count={self.max_count}.")
+#         for idx,json_obj in tqdm(itt.islice(self._iter_raw_records(), self.offset, stop)):
+#             entry = Entry(idx=idx)
+#             if self.keys is not None:
+#                 entry.data.update(KeysUtil.make_dict(self.keys,KeysUtil.read_dict(json_obj, self.keys)))
+#             else:
+#                 entry.data.update(json_obj)
+#             n_read += 1
+#             yield entry
+#         print(f"[{self.__class__.__name__}]: Read {n_read} entries.")
 
 class ReaderOp(SourceOp, ABC):
     def __init__(self,
                     keys: List[str]|None,
                     *,
+                    shuffle: bool = False,
+                    seed: int = 42,
                     offset: int = 0,
                     max_count: int = None,
                     fire_once: bool = True
                     ):
         super().__init__(fire_once=fire_once)
         self.keys = KeysUtil.make_keys(keys) if keys is not None else None
+        self.shuffle = shuffle
         self.offset = offset
         self.max_count = max_count
     @abstractmethod
-    def _iter_records(self) -> Iterator[Tuple[str,Dict]]:
-        """Abstract method to iterate over records in the data source."""
+    def _estimate_size(self) -> int:
+        "Estimate the upper bound of the number of records"
         pass
-    def generate_batch(self)-> Dict[str,Entry]:
-        stop = self.offset + self.max_count if self.max_count is not None else None
-        entries = {}
-        print(f"[{self.__class__.__name__}]: Reading entries from {self._args_repr()} with offset={self.offset}, max_count={self.max_count}.")
-        for idx,json_obj in tqdm(itt.islice(self._iter_records(), self.offset, stop)):
-            entry = Entry(idx=idx)
-            if self.keys is not None:
-                entry.data.update(KeysUtil.make_dict(self.keys,KeysUtil.read_dict(json_obj, self.keys)))
-            else:
-                entry.data.update(json_obj)
-            entries[idx] = entry
-        print(f"[{self.__class__.__name__}]: Read {len(entries)} entries.")
-        return entries
+    @abstractmethod
+    def _iter_record_proxy(self) -> Iterator[Any]:
+        """Abstract method to iterate over unprocessed records in the data source."""
+        pass
+    @abstractmethod
+    def _load_and_process_record(self, record_proxy: Any) -> Tuple[str, Dict]:
+        """Process a single record and return its index and data."""
+        pass
+    def _generate_entry(self, idx: str, record: Dict) -> Entry:
+        if self.keys is not None:
+            record = KeysUtil.make_dict(self.keys, KeysUtil.read_dict(record, self.keys))
+        return Entry(idx=idx, data=record)
+    def generate_batch(self)-> Iterator[Entry]:
+        if self.shuffle:
+            return self.generate_batch_shuffled()
+        else:
+            return self.generate_batch_unshuffled()
+    def generate_batch_shuffled(self)-> Iterator[Entry]:
+        assert self.shuffle
+        n_records = self._estimate_size()
+        indices = np.arange(n_records)
+        rng = np.random.default_rng(seed=self.seed)
+        rng.shuffle(indices)
+        indices = indices[self.offset:self.offset + self.max_count] if self.max_count is not None else indices[self.offset:]
+        indice_map = {i:pos for pos,i in enumerate(indices)}
+        output = [None]*len(indice_map)
+        n_found = 0
+        for i, record_proxy in enumerate(self._iter_record_proxy()):
+            if i in indice_map:
+                idx, record = self._load_and_process_record(record_proxy)
+                output[indice_map[i]] = self._generate_entry(idx, record)
+                n_found += 1
+            if n_found == len(indice_map):
+                break
+        for entry in output:
+            if entry is not None:
+                yield entry
+    def generate_batch_unshuffled(self)->Iterator[Entry]:
+        assert not self.shuffle
+        for i,record_proxy in enumerate(self._iter_record_proxy()):
+            if i < self.offset:
+                continue
+            if self.max_count is not None and i >= self.offset + self.max_count:
+                break
+            idx, record = self._load_and_process_record(record_proxy)
+            yield self._generate_entry(idx, record)
 
 @show_in_op_list
 class ReadJsonl(ReaderOp):
     """Read JSON Lines files. (also supports json array)"""
     def __init__(self, 
-                 glob_str: str|Path, 
-                 keys: List[str]=None,
-                 *,
-                 idx_key: str = None,
-                 hash_keys: Union[str, List[str]] = None,
-                 offset: int = 0,
-                 max_count: int = None,
-                 fire_once: bool = True
-                 ):
+                glob_str: str|Path, 
+                keys: List[str]=None,
+                *,
+                idx_key: str = None,
+                hash_keys: Union[str, List[str]] = None,
+                shuffle: bool = False,
+                seed: int = 42,
+                offset: int = 0,
+                max_count: int = None,
+                fire_once: bool = True
+                ):
         if idx_key is None and hash_keys is None:
             raise ValueError("Must specify either idx_key or hash_keys to generate unique indices for entries.")
         if idx_key is not None and hash_keys is not None:
             raise ValueError("Cannot specify both idx_key and hash_keys. Use one or the other.")
-        super().__init__(keys=keys, offset=offset, max_count=max_count, fire_once=fire_once)
+        super().__init__(keys=keys, shuffle=shuffle, seed=seed, offset=offset, max_count=max_count, fire_once=fire_once)
         self.glob_str = to_glob(glob_str)
         self.idx_key = idx_key
         self.hash_keys = KeysUtil.make_keys(hash_keys) if hash_keys is not None else None
     def _args_repr(self): return ReprUtil.repr_glob(self.glob_str)
-    def _iter_records(self) -> Iterator[Tuple[str,Dict]]:
+    def _estimate_size(self) -> int:
         for path in sorted(glob(self.glob_str)):
             if path.endswith('.jsonl'):
-                it = self._iter_jsonl(path)
+                return self._estimate_jsonl_size(path)
             elif path.endswith('.json'):
-                it = self._iter_json(path)
+                return self._estimate_json_size(path)
             else:
                 raise ValueError(f"Unsupported file format: {path}. Only .jsonl and .json files are supported.")
-            for record in it:
-                idx = self.generate_idx_from_json(record)
-                yield idx, record
-    def _iter_jsonl(self, path:str) -> Iterator[Dict]:
+    def _iter_record_proxy(self):
+        for path in sorted(glob(self.glob_str)):
+            if path.endswith('.jsonl'):
+                yield from self._iter_jsonl(path)
+            elif path.endswith('.json'):
+                yield from self._iter_json(path)
+            else:
+                raise ValueError(f"Unsupported file format: {path}. Only .jsonl and .json files are supported.")
+    def _load_and_process_record(self, raw_record: Dict) -> Tuple[str, Dict]:
+        idx = generate_idx_from_dict(raw_record, self.idx_key, self.hash_keys)
+        return idx, raw_record
+    def _iter_jsonl(self,path):
         with jsonlines.open(path) as reader:
             for record in reader:
                 yield record
-    def _iter_json(self, path:str) -> Iterator[Dict]:
+    def _iter_json(self,path):
         with open(path, 'r', encoding='utf-8') as f:
             records = json.load(f)
             if isinstance(records, dict):
                 records = [records]
             for record in records:
                 yield record
-    def generate_idx_from_json(self, json_obj) -> str:
-        """Generate an index for the entry based on idx_key and/or hash_keys."""
-        if self.idx_key is not None:
-            return json_obj.get(self.idx_key, "")
-        elif self.hash_keys is not None:
-            json_to_hash = {k:json_obj.get(k) for k in sorted(self.hash_keys)}
-            return hash_json(json_to_hash)
-        else:
-            raise ValueError("Must specify either idx_key or hash_keys to generate unique indices for entries.")
+    def _estimate_jsonl_size(self,path):
+        with open(path, 'r', encoding='utf-8') as f:
+            return sum(1 for line in f if line.strip() and not line.startswith('#'))  # Skip empty lines and comments
+    def _estimate_json_size(self,path):
+        return sum(1 for _ in self._iter_json(path))
+
+
+def generate_idx_from_dict(record, idx_key, hash_keys) -> str:
+    """Generate an index for the entry based on idx_key and/or hash_keys."""
+    if idx_key is not None:
+        return record.get(idx_key, "")
+    elif hash_keys is not None:
+        json_to_hash = {k:record.get(k) for k in sorted(hash_keys)}
+        return hash_json(json_to_hash)
+    else:
+        raise ValueError("Must specify either idx_key or hash_keys to generate unique indices for entries.")
 
 @show_in_op_list
 class ReadParquet(ReaderOp):
     """Read Parquet files."""
     def __init__(self, 
-                 glob_str: str|Path, 
-                 keys: List[str]=None,
-                 *,
-                 idx_key: str = None,
-                 hash_keys: Union[str, List[str]] = None,
-                 offset: int = 0,
-                 max_count: int = None,
-                 fire_once: bool = True
-                 ):
+                glob_str: str|Path, 
+                keys: List[str]=None,
+                *,
+                idx_key: str = None,
+                hash_keys: Union[str, List[str]] = None,
+                shuffle: bool = False,
+                seed: int = 42,
+                offset: int = 0,
+                max_count: int = None,
+                fire_once: bool = True,
+                ):
         if idx_key is None and hash_keys is None:
             raise ValueError("Must specify either idx_key or hash_keys to generate unique indices for entries.")
         if idx_key is not None and hash_keys is not None:
             raise ValueError("Cannot specify both idx_key and hash_keys. Use one or the other.")
-        super().__init__(keys=keys, offset=offset, max_count=max_count, fire_once=fire_once)
+        super().__init__(keys=keys, shuffle=shuffle, seed=seed, offset=offset, max_count=max_count, fire_once=fire_once)
         self.glob_str = to_glob(glob_str)
         self.idx_key = idx_key
         self.hash_keys = KeysUtil.make_keys(hash_keys) if hash_keys is not None else None
     def _args_repr(self): return ReprUtil.repr_glob(self.glob_str)
-    def _iter_records(self) -> Iterator[Tuple[str,Dict]]:
+    def _estimate_size(self):
         for path in sorted(glob(self.glob_str)):
-            table = pq.read_table(path)
-            for row in table.to_pylist():
-                idx = self.generate_idx_from_json(row)
-                yield idx, row
-    def generate_idx_from_json(self, json_obj) -> str:
-        """Generate an index for the entry based on idx_key and/or hash_keys."""
-        if self.idx_key is not None:
-            return json_obj.get(self.idx_key, "")
-        elif self.hash_keys is not None:
-            json_to_hash = {k:json_obj.get(k) for k in sorted(self.hash_keys)}
-            return hash_json(json_to_hash)
-        else:
-            raise ValueError("Must specify either idx_key or hash_keys to generate unique indices for entries.")
+            if path.endswith('.parquet'):
+                return self._estimate_parquet_size(path)
+            else:
+                raise ValueError(f"Unsupported file format: {path}. Only .parquet files are supported.")
+    def _iter_record_proxy(self) -> Iterator[Any]:
+        for path in sorted(glob(self.glob_str)):
+            if path.endswith('.parquet'):
+                yield from self._iter_parquet(path)
+            else:
+                raise ValueError(f"Unsupported file format: {path}. Only .parquet files are supported.")
+    def _estimate_parquet_size(self, path: str) -> int:
+        pq_file = pq.ParquetFile(path)
+        return pq_file.metadata.num_rows
+    def _iter_parquet(self, path: str) -> Iterator[int]:
+        self._current_pq_file = pq.ParquetFile(path)
+        self._last_row_group_index = None
+        self._last_row_group = None
+        for i in range(0, self._current_pq_file.metadata.num_rows):
+            yield i
+        del self._current_pq_file
+        del self._last_row_group_index
+        del self._last_row_group
+    def _find_row_group(self, pos):
+        offset = 0
+        for i in range(self._current_pq_file.num_row_groups):
+            rg_meta = self._current_pq_file.metadata.row_group(i)
+            n_rows = rg_meta.num_rows
+            if pos<offset+n_rows:
+                return i,pos-offset
+            offset += n_rows
+        raise ValueError(f"Position {pos} out of bounds for file {self._current_pq_file.path}")
+    def _load_and_process_record(self, pos:int):
+        row_group_index, row_index = self._find_row_group(pos)
+        if row_group_index != self._last_row_group_index:
+            self._last_row_group = self._current_pq_file.read_row_group(row_group_index)
+            self._last_row_group_index = row_group_index
+        record = self._last_row_group[row_index].as_py()
+        idx = generate_idx_from_dict(record, self.idx_key, self.hash_keys)
+        return idx, record
 
 @show_in_op_list
 class WriteJsonl(OutputOp):
@@ -177,46 +289,11 @@ class WriteJsonl(OutputOp):
         record['rev'] = entry.rev
         return record
 
-# @show_in_op_list
-# class FilterExistingEntriesInJsonl(BatchOp):
-#     """
-#     Filter out entries that have already been processed and exist in a given JSONL archive.
-#     - Only entries with non-null values for all specified keys are considered processed.
-#     """
-#     def __init__(self, 
-#                     jsonl_path: str|Path, 
-#                     keys: List[str],
-#     ):
-#         super().__init__()
-#         self.jsonl_path = jsonl_path
-#         self.keys = KeysUtil.make_keys(keys) if keys else None
-#     def _args_repr(self): return ReprUtil.repr_path(self.jsonl_path)
-#     def _get_processed(self) -> Set[str]:
-#         processed_idxs = set()
-#         if os.path.exists(self.jsonl_path):
-#             with jsonlines.open(self.jsonl_path, 'r') as reader:
-#                 for record in reader:
-#                     idx = record['idx']
-#                     if self.keys is not None:
-#                         if any(record.get(k) is None for k in self.keys):
-#                             continue
-#                     processed_idxs.add(idx)
-#         return processed_idxs
-#     def update_batch(self, batch: Dict[str, Entry]) -> Iterator[Entry]:
-#         processed_idxs = self._get_processed()
-#         n_remaining = 0 
-#         for idx, entry in batch.items():
-#             if idx not in processed_idxs:
-#                 n_remaining += 1
-#                 yield entry
-#         print(f"[FilterExistingEntriesInJsonl]: Filtered {len(batch) - n_remaining} entries from {len(batch)} entries.")
-
 def generate_idx_from_strings(strings: List[str]) -> str:
     def escape_string(s):
         return s.replace(" ", "_").replace("/", "_").replace("\\", "_")
     escaped_strings = [escape_string(s.strip()) for s in strings]
     return hash_text("/".join(escaped_strings))
-
 
 def remove_markdown_headings(text: str) -> str:
     text= re.sub(r'^#+\s*', '', text, flags=re.MULTILINE)
@@ -231,30 +308,36 @@ class ReadTxtFolder(ReaderOp):
                 *,
                 filename_key = "filename",
                 remove_extension_in_filename = True,
+                shuffle: bool = False,
+                seed: int = 42,
                 offset: int = 0,
                 max_count: int = None,
                 fire_once: bool = True,
     ):
         keys = [filename_key, "text"]
-        super().__init__(keys=[f for f in keys if f], offset=offset, max_count=max_count, fire_once=fire_once)
+        keys = [f for f in keys if f]
+        super().__init__(keys=keys, shuffle=shuffle, seed=seed, offset=offset, max_count=max_count, fire_once=fire_once)
         self.glob_str = to_glob(glob_str)
-        print(self.glob_str)
         self.text_key = text_key
         self.filename_key = filename_key
         self.remove_extension_in_filename = remove_extension_in_filename
     def _args_repr(self): return ReprUtil.repr_glob(self.glob_str)
-    def _iter_records(self) -> Iterator[Tuple[str, Dict]]:
+    def _estimate_size(self):
+        return len(list(glob(self.glob_str)))
+    def _iter_record_proxy(self) -> Iterator[str]:
         for path in sorted(glob(self.glob_str)):
-            with open(path, 'r', encoding='utf-8') as f:
-                text = f.read()
-            idx = hash_text(path)
-            record = {self.text_key: text}
-            if self.filename_key:
-                filename = os.path.basename(path)
-                if self.remove_extension_in_filename:
-                    filename = os.path.splitext(filename)[0]
-                record[self.filename_key] = filename
-            yield idx, record
+            yield path
+    def _load_and_process_record(self, path: str) -> Tuple[str, Dict]:
+        with open(path, 'r', encoding='utf-8') as f:
+            text = f.read()
+        idx = hash_text(path)
+        record = {self.text_key: text}
+        if self.filename_key:
+            filename = os.path.basename(path)
+            if self.remove_extension_in_filename:
+                filename = os.path.splitext(filename)[0]
+            record[self.filename_key] = filename
+        return idx, record
 
 @show_in_op_list
 class WriteTxtFolder(OutputOp):
@@ -282,6 +365,10 @@ class WriteTxtFolder(OutputOp):
                 f.write(text)
         print(f"[WriteTxtFolder]: Output {len(batch)} entries to {os.path.abspath(self.directory)}")
 
+    def _args_repr(self): return ReprUtil.repr_glob(self.glob_str)
+
+
+
 @show_in_op_list
 class ReadMarkdownLines(ReaderOp):
     "Read Markdown files and extract non-empty lines as keyword with markdown headings as a list."
@@ -292,31 +379,41 @@ class ReadMarkdownLines(ReaderOp):
                 headings_key = "headings",
                 filename_key = "filename",
                 remove_extension_in_filename = True,
+                shuffle: bool = False,
+                seed: int = 42,
                 offset: int = 0,
                 max_count: int = None,
                 fire_once: bool = True,
                 ):
         keys = [keyword_key, headings_key, filename_key]
-        super().__init__(keys=[f for f in keys if f], offset=offset, max_count=max_count, fire_once=fire_once)
+        keys = [f for f in keys if f]
+        super().__init__(keys=keys, shuffle=shuffle, seed=seed, offset=offset, max_count=max_count, fire_once=fire_once)
         self.glob_str = to_glob(glob_str)
         self.keyword_key = keyword_key
         self.headings_key = headings_key
         self.filename_key = filename_key
         self.remove_extension_in_filename = remove_extension_in_filename
-    def _args_repr(self): return ReprUtil.repr_glob(self.glob_str)
-    def _iter_records(self) -> Iterator[Tuple[str, Dict]]:
+    def _iter_record_proxy(self) -> Iterator[Tuple]:
         for path in sorted(glob(self.glob_str)):
             filename = os.path.basename(path)
             if self.remove_extension_in_filename:
                 filename = os.path.splitext(filename)[0]
             for headings, keyword in iter_markdown_lines(path):
-                idx = generate_idx_from_strings([filename]+ headings+[keyword])
-                record = {self.keyword_key: keyword}
-                if self.headings_key:
-                    record[self.headings_key] = headings
-                if self.filename_key:
-                    record[self.filename_key] = filename
-                yield idx, record
+                yield filename, headings, keyword
+    def _estimate_size(self) -> int:
+        return sum(1 for _ in self._iter_raw_records())
+    def _load_and_process_record(self, record:Tuple):
+        filename, headings, keyword = record
+        idx = generate_idx_from_strings([filename]+headings+[keyword])
+        record = {self.keyword_key: keyword}
+        if self.headings_key:
+            record[self.headings_key] = headings
+        if self.filename_key:
+            record[self.filename_key] = filename
+        return idx, record
+
+
+
 
 @show_in_op_list
 class WriteMarkdownLines(OutputOp):
@@ -381,13 +478,16 @@ class ReadMarkdownEntries(ReaderOp):
                 headings_key = "headings",
                 filename_key = "filename",
                 remove_extension_in_filename = True,
+                shuffle: bool = False,
+                seed: int = 42,
                 offset: int = 0,
                 max_count: int = None,
                 fire_once: bool = True,
                 include_text_in_idx_hash = False,
                 ):
         keys = [output_key, headings_key, filename_key]
-        super().__init__(keys=[f for f in keys if f], offset=offset, max_count=max_count, fire_once=fire_once)
+        keys = [f for f in keys if f]
+        super().__init__(keys=keys, shuffle=shuffle, seed=seed, offset=offset, max_count=max_count, fire_once=fire_once)
         self.glob_str = to_glob(glob_str)
         self.output_key = output_key
         self.headings_key = headings_key
@@ -395,7 +495,7 @@ class ReadMarkdownEntries(ReaderOp):
         self.remove_extension_in_filename = remove_extension_in_filename
         self.include_text_in_idx_hash = include_text_in_idx_hash
     def _args_repr(self): return ReprUtil.repr_glob(self.glob_str)
-    def _iter_records(self) -> Iterator[Tuple[str, Dict]]:
+    def _iter_record_proxy(self):
         for path in sorted(glob(self.glob_str)):
             filename = os.path.basename(path)
             if self.remove_extension_in_filename:
@@ -403,16 +503,21 @@ class ReadMarkdownEntries(ReaderOp):
             for headings, text in iter_markdown_entries(path):
                 if not text.strip():
                     continue
-                if self.include_text_in_idx_hash:
-                    idx = generate_idx_from_strings([filename] + headings + [text])
-                else:
-                    idx = generate_idx_from_strings([filename] + headings)
-                record = {self.output_key: text}
-                if self.headings_key:
-                    record[self.headings_key] = headings
-                if self.filename_key:
-                    record[self.filename_key] = filename
-                yield idx, record
+                yield filename, headings, text
+    def _estimate_size(self) -> int:
+        return sum(1 for _ in self._iter_raw_records())
+    def _load_and_process_record(self, record):
+        filename, headings, text = record
+        if self.include_text_in_idx_hash:
+            idx = generate_idx_from_strings([filename] + headings + [text])
+        else:
+            idx = generate_idx_from_strings([filename] + headings)
+        record = {self.output_key: text}
+        if self.headings_key:
+            record[self.headings_key] = headings
+        if self.filename_key:
+            record[self.filename_key] = filename
+        return idx, record
 
 @show_in_op_list
 class WriteMarkdownEntries(OutputOp):
@@ -504,12 +609,9 @@ class FromList(SourceOp):
         self.output_key = output_key
     def set_input(self, input_list: List[Dict]|List[Any]) -> None:
         self.input_list = input_list
-    def generate_batch(self) -> Dict[str, Entry]:
-        entries = {}
+    def generate_batch(self) -> Iterator[Entry]:
         for obj in self.input_list:
-            entry = self._make_entry(obj)
-            entries[entry.idx] = entry
-        return entries
+            yield self._make_entry(obj)
     def _make_entry(self,obj:Entry|dict|int|float|str|bool)->Entry:
         if isinstance(obj, Entry) and self.output_key is None:
             return obj

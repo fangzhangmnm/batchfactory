@@ -7,6 +7,7 @@ from typing import List, Tuple, NamedTuple, Dict, Set
 from copy import deepcopy
 import time
 from collections import defaultdict
+import gc
 
 
 
@@ -27,19 +28,39 @@ class OpGraphExecutor:
     def _pump_node(self,node:BaseOp,options:PumpOptions)->bool:
         if options.max_barrier_level is not None and node.barrier_level > options.max_barrier_level:
             return False
-        time_start = time.perf_counter()
-        inputs:Dict[int,Dict[str,Entry]] = self._collect_node_inputs(node, use_deepcopy=True)
-        self._time_prof[f"collect node inputs for {node}"] += time.perf_counter() - time_start
-        time_start = time.perf_counter()
-        pump_output:PumpOutput = node.pump(inputs=inputs, options=options)
-        self._time_prof[f"pump node {node}"] += time.perf_counter() - time_start
-        self._time_start = time.perf_counter()
-        self._update_node_outputs(node, pump_output.outputs)
-        self._time_prof[f"update outputs for {node}"] += time.perf_counter() - self._time_start
-        self._time_start = time.perf_counter()
-        del inputs
-        self._consume_node_inputs(node, pump_output.consumed)
-        self._time_prof[f"consume inputs for {node}"] += time.perf_counter() - self._time_start
+        _gc_toggled = False
+        try:
+            time_start = time.perf_counter()
+            inputs:Dict[int,Dict[str,Entry]] = self._collect_node_inputs(node, use_deepcopy=True)
+            self._time_prof[f"collect node inputs for {node}"] += time.perf_counter() - time_start
+
+            # turn off gc if inputs is very large
+            if gc.isenabled() and sum(len(batch) for batch in inputs.values()) > 10000:
+                gc.disable()
+                _gc_toggled = True
+
+            time_start = time.perf_counter()
+            pump_output:PumpOutput = node.pump(inputs=inputs, options=options)
+            self._time_prof[f"pump node {node}"] += time.perf_counter() - time_start
+
+            time_start = time.perf_counter()
+            self._update_node_outputs(node, pump_output.outputs)
+            self._time_prof[f"update outputs for {node}"] += time.perf_counter() - time_start
+
+            time_start = time.perf_counter()
+            del inputs
+            self._consume_node_inputs(node, pump_output.consumed)
+            self._time_prof[f"consume inputs for {node}"] += time.perf_counter() - time_start
+
+        except Exception as e:
+            print(f"Exception while pumping node {node}: {e}")
+            raise e
+        finally:
+            if _gc_toggled:
+                time_start = time.perf_counter()
+                gc.enable()
+                gc.collect()
+                self._time_prof[f"gc collect after {node}"] += time.perf_counter() - time_start
         return pump_output.did_emit
 
     def incoming_edge(self,node,port)->OpGraphEdge:
@@ -66,12 +87,12 @@ class OpGraphExecutor:
         for port, idxs in consumed.items():
             edge = self.incoming_edge(node, port)
             if edge is None: continue
-            src_entries = self.output_cache.setdefault((edge.source, edge.source_port), {})
             if idxs is True:
-                src_entries.clear()  # consume all entries from this port
+                time_start = time.perf_counter()
+                self.output_cache[(edge.source, edge.source_port)].clear()
             elif isinstance(idxs, set):
-                src_entries = {idx: entry for idx, entry in src_entries.items() if idx not in idxs}
-                self.output_cache[(edge.source, edge.source_port)] = src_entries
+                src_entries = self.output_cache.get((edge.source, edge.source_port), {})
+                self.output_cache[(edge.source, edge.source_port)] =  {idx: entry for idx, entry in src_entries.items() if idx not in idxs}
 
     def _update_node_outputs(self,node,outputs:Dict[int,Dict[str,Entry]]):
         for port,batch in outputs.items():
@@ -97,15 +118,15 @@ class OpGraphExecutor:
         for node in self.nodes:
             self.verbose>=2 and print(f"[OpGraphExecutor] Pumping node {node} with barrier level {node.barrier_level}")
             # time_start = time.perf_counter()
-            try:
-                if options.max_barrier_level is not None and node.barrier_level > options.max_barrier_level:
-                    continue
-                did_emit = self._pump_node(node, options)
-                if did_emit:
-                    max_emitted_barrier_level = max(max_emitted_barrier_level or float('-inf'), node.barrier_level)
-            except Exception as e:
-                print(f"Exception while pumping node {node}: {e}")
-                raise e
+            # try:
+            if options.max_barrier_level is not None and node.barrier_level > options.max_barrier_level:
+                continue
+            did_emit = self._pump_node(node, options)
+            if did_emit:
+                max_emitted_barrier_level = max(max_emitted_barrier_level or float('-inf'), node.barrier_level)
+            # except Exception as e:
+            #     print(f"Exception while pumping node {node}: {e}")
+            #     raise e
             # self._time_prof[repr(node)] += time.perf_counter() - time_start
         return max_emitted_barrier_level
     def clear_output_cache(self):
@@ -178,7 +199,7 @@ class OpGraphExecutor:
         print("[OpGraphExecutor] Node times:")
         average_time = sum(self._time_prof.values()) / len(self._time_prof) if self._time_prof else 0
         for name, time in sorted(self._time_prof.items(), key=lambda x: x[1], reverse=True):
-            if time>average_time*0.1:
+            if time>0.1:
                 print(f"    {name}: {time:.4f} seconds")
 
     def get_node_output(self, node:BaseOp, port:int=None)->Dict[int,Dict[str,Entry]]|Dict[str,Entry]:
