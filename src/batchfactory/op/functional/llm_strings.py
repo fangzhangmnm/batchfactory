@@ -24,6 +24,7 @@ def split_cot(text)->Tuple[str,str]:
         cot, text = text.split("</think>", 1)
         if cot.strip().startswith("<think>"):
             cot = cot.strip()[len("<think>"):]
+        text = text.lstrip()
     return text, cot.strip()
 
 def remove_cot(text):
