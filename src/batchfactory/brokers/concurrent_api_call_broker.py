@@ -78,15 +78,15 @@ class ConcurrentAPICallBroker(ImmediateBroker, ABC):
         while True:
             request = await queue.get()
             try:
-                async with self.rate_limiter:
-                    async with self.concurrency_semaphore:
+                async with self.concurrency_semaphore:
+                    async with self.rate_limiter:
                         await self._task_async(request, mock=mock)
             finally:
                 queue.task_done()
 
     async def _process_all_tasks_async(self, requests: Dict[str, BrokerJobRequest], mock: bool):
         requests = list(requests.values())
-        if not requests: return
+        if len(requests[::self.max_number_per_batch]) == 0: return
         self.pbar = tqdm(total=len(requests))
         self.concurrency_semaphore = Semaphore(self.concurrency_limit)
         self.rate_limiter = AsyncLimiter(self.rate_limit, 1)

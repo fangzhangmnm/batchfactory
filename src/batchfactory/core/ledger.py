@@ -82,16 +82,23 @@ class Ledger:
                 record = builder(record)
             records[idx] = record
         return records
-    def filter_many(self, criteria:Callable, builder:Callable=None) -> Dict[str, Any]:
+    def filter_many(self, criteria:Callable, builder:Callable=None, filter_before_build=False) -> Dict[str, Any]:
         """returns a dict of records that satisfy criteria(record)==True"""
         records = {}
         self.cursor.execute('SELECT idx, data FROM entries')
         for idx, data_blob in self.cursor.fetchall():
             record = msgpack.unpackb(data_blob, raw=False)
-            if builder is not None:
-                record = builder(record)
-            if criteria(record):
-                records[idx] = record
+            if filter_before_build and not criteria(record):
+                continue
+            try:
+                if builder is not None:
+                    record = builder(record)
+            except Exception as e:
+                print(f"[Ledger] Error in builder for record {idx}: {e}")
+                continue
+            if not filter_before_build and not criteria(record):
+                continue
+            records[idx] = record
         return records
     def contains(self, idx:str) -> bool:
         self.cursor.execute('SELECT 1 FROM entries WHERE idx = ?', (idx,))

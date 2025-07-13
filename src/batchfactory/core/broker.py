@@ -49,7 +49,8 @@ class Broker(ABC):
 
     def get_job_responses(self)->Dict[str,BrokerJobResponse]:
         return self._ledger.filter_many(
-            lambda x: x.status.is_terminal(),
+            lambda x: BrokerJobStatus(x["status"]).is_terminal(),
+            filter_before_build=True,
             builder=lambda record: BrokerJobResponse(
                     job_idx=record["idx"],
                     status=BrokerJobStatus(record["status"]),
@@ -61,7 +62,8 @@ class Broker(ABC):
     def get_job_requests(self, status:Iterable[BrokerJobStatus]|BrokerJobStatus)->Dict[str,BrokerJobRequest]:
         if isinstance(status,(BrokerJobStatus,str)): status = [status]
         return self._ledger.filter_many(
-            lambda x: x.status in status,
+            lambda x: BrokerJobStatus(x["status"]) in status,
+            filter_before_build=True,
             builder=lambda record: BrokerJobRequest(
                 job_idx=record["idx"],
                 status=BrokerJobStatus(record["status"]),
