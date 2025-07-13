@@ -2,7 +2,7 @@
 
 Composable, cache‑aware pipelines for **parallel LLM workflows**, API calls, and dataset generation.
 
-> **Status — `v0.5` beta.** More robust and battle-tested on small projects. Still evolving quickly — APIs may shift.
+> **Status — `v0.6` beta.** More robust and battle-tested on small projects. Optimized for pressure under large dataset scale.
 
 ![BatchFactory cover](https://raw.githubusercontent.com/fangzhangmnm/batchfactory/main/docs/assets/batchfactory.jpg)
 

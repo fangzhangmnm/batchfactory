@@ -6,7 +6,7 @@ PROMPT = """
 Write a poem about {keyword}.
 """
 
-with bf.ProjectFolder("quickstart", 1, 0, 6) as project:
+with bf.ProjectFolder("quickstart", 1, 0, 7) as project:
     g = bf.Graph()
     g |= ReadMarkdownLines("./demo_data/greek_mythology_stories.md")
         # load keywords

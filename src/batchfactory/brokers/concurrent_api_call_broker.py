@@ -65,7 +65,7 @@ class ConcurrentAPICallBroker(ImmediateBroker, ABC):
                 response_object=None,
                 meta={**(request.meta or {}), "error": str(e)}
             )
-        await self._ledger2.update_one_async({
+        await self._ledger.update_one_async({
             "idx": request.job_idx,
             "status": response.status.value,
             "response": response.response_object.model_dump() if response.response_object else None,

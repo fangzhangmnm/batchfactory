@@ -2,7 +2,7 @@
 
 Composable, cache‑aware pipelines for **parallel LLM workflows**, API calls, and dataset generation.
 
-> **Status — `v0.5` beta.** More robust and battle-tested on small projects. Still evolving quickly — APIs may shift.
+> **Status — `v0.6` beta.** More robust and battle-tested on small projects. Optimized for pressure under large dataset scale.
 
 ![BatchFactory cover](https://raw.githubusercontent.com/fangzhangmnm/batchfactory/main/docs/assets/batchfactory.jpg)
 
@@ -29,7 +29,7 @@ PROMPT = """
 Write a poem about {keyword}.
 """
 
-with bf.ProjectFolder("quickstart", 1, 0, 5) as project:
+with bf.ProjectFolder("quickstart", 1, 0, 7) as project:
     g = bf.Graph()
     g |= ReadMarkdownLines("./demo_data/greek_mythology_stories.md")
         # load keywords
@@ -159,12 +159,13 @@ g |= EmbedText("keyword", model="text-embedding-3-small@openai", output_format="
 | `CheckPoint` | A no-op checkpoint that saves inputs to the cache, and resumes from the cache. |
 | `CollectAllToList` | Collect items from spawn entries on port 1 and merge them into a list (or lists if multiple items provided). |
 | `CollectField` | Collect field(s) from port 1, merge to 0. |
+| `ExcludeIdx` | Removing entries whose idx is in a given set |
 | `ExplodeList` | Explode an entry to multiple entries based on a list (or lists). |
 | `Filter` | Filter entries based on a custom criteria function. |
-| `FilterExistingEntriesInJsonl` | Filter out entries that have already been processed and exist in a given JSONL archive. |
 | `FilterFailedEntries` | Drop entries that have a status "failed". |
 | `FilterMissingFields` | Drop entries that do not have specific fields. |
 | `FromList` | Create entries from a list of dictionaries or objects, each representing an entry. |
+| `IncludeIdx` | Keeping entries whose idx is in a given set |
 | `MapField` | Map a function to specific field(s) in the entry data. |
 | `OutputEntries` | Output entries to a list. |
 | `PrintEntry` | Print the first n entries information. |
@@ -172,6 +173,7 @@ g |= EmbedText("keyword", model="text-embedding-3-small@openai", output_format="
 | `ReadJsonl` | Read JSON Lines files. (also supports json array) |
 | `ReadMarkdownEntries` | Read Markdown files and extract nonempty text under every headings with markdown headings as a list. |
 | `ReadMarkdownLines` | Read Markdown files and extract non-empty lines as keyword with markdown headings as a list. |
+| `ReadParquet` | Read Parquet files. |
 | `ReadTxtFolder` | Collect all txt files in a folder. |
 | `RemoveField` | Remove fields from the entry data. |
 | `RenameField` | Rename fields in the entry data. |

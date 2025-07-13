@@ -1,13 +1,13 @@
 from batchfactory.core.ledger import Ledger
 import os
+import asyncio
 
 def test_ledger(tmp_path):
-    # Clean up any existing cache file
-    cache_path = tmp_path / "test_ledger_cache.json"
+    cache_path = tmp_path / "test_ledger_cache.sqlite"
     ledger = Ledger(cache_path)
-    ledger.resume()
+    # do not need resume
     # Append some records
-    ledger.append_many({
+    ledger.update_many_sync({
         "1": {"idx": "1", "data": "test1"},
         "2": {"idx": "2", "data": "test2"},
     })
@@ -17,13 +17,14 @@ def test_ledger(tmp_path):
     assert ledger.get_one("1") == {"idx": "1", "data": "test1"}
     assert ledger.get_one("3") is None
     # Update records
-    ledger.update_many({
+    ledger.update_many_sync({
         "1": {"idx": "1", "data": "updated_test1"},
         "3": {"idx": "3", "data": "test3"},
     })
     assert ledger.get_one("1") == {"idx": "1", "data": "updated_test1"}
     assert ledger.get_one("3") == {"idx": "3", "data": "test3"}
-    ledger.update_one({"idx": "2", "data": "updated_test2"})
+    asyncio.run(ledger.update_one_async({"idx": "2", "data": "updated_test2"}))
+    # Check if the update was successful
     assert ledger.get_one("2") == {"idx": "2", "data": "updated_test2"}
     # Filter records
     filtered = ledger.filter_many(lambda x: "3" in x["data"])
@@ -40,7 +41,12 @@ def test_ledger(tmp_path):
     # Resume
     del ledger
     ledger = Ledger(cache_path)
-    ledger.resume()
+    # do not need resume
     # Check if the records are still there after resume
     assert ledger.contains("3")
     assert ledger.get_one("3") == {"idx": "3", "data": "test3"}
+    # Cleanup
+    all_records = ledger.get_all()
+    ledger.remove_many(set(all_records.keys()))
+    ledger.compact()
+    del ledger
