@@ -19,37 +19,8 @@ from dataclasses import asdict
 from copy import deepcopy
 from pathlib import Path
 from tqdm.auto import tqdm
+import random
 import numpy as np
-
-# class ReaderOp(SourceOp, ABC):
-#     def __init__(self,
-#                     keys: List[str]|None,
-#                     *,
-#                     offset: int = 0,
-#                     max_count: int = None,
-#                     fire_once: bool = True
-#                     ):
-#         super().__init__(fire_once=fire_once)
-#         self.keys = KeysUtil.make_keys(keys) if keys is not None else None
-#         self.offset = offset
-#         self.max_count = max_count
-#     @abstractmethod
-#     def _iter_raw_records(self) -> Iterator[Tuple[str,Dict]]:
-#         """Abstract method to iterate over records in the data source."""
-#         pass
-#     def generate_batch(self)-> Iterator[Entry]:
-#         stop = self.offset + self.max_count if self.max_count is not None else None
-#         n_read = 0
-#         print(f"[{self.__class__.__name__}]: Reading entries from {self._args_repr()} with offset={self.offset}, max_count={self.max_count}.")
-#         for idx,json_obj in tqdm(itt.islice(self._iter_raw_records(), self.offset, stop)):
-#             entry = Entry(idx=idx)
-#             if self.keys is not None:
-#                 entry.data.update(KeysUtil.make_dict(self.keys,KeysUtil.read_dict(json_obj, self.keys)))
-#             else:
-#                 entry.data.update(json_obj)
-#             n_read += 1
-#             yield entry
-#         print(f"[{self.__class__.__name__}]: Read {n_read} entries.")
 
 class ReaderOp(SourceOp, ABC):
     def __init__(self,
@@ -66,6 +37,7 @@ class ReaderOp(SourceOp, ABC):
         self.shuffle = shuffle
         self.offset = offset
         self.max_count = max_count
+        self.seed = seed
     @abstractmethod
     def _estimate_size(self) -> int:
         "Estimate the upper bound of the number of records"
@@ -90,14 +62,15 @@ class ReaderOp(SourceOp, ABC):
     def generate_batch_shuffled(self)-> Iterator[Entry]:
         assert self.shuffle
         n_records = self._estimate_size()
-        indices = np.arange(n_records)
-        rng = np.random.default_rng(seed=self.seed)
+        # indices = list(range(n_records))
+        indices = np.arange(n_records, dtype=np.int64)
+        rng = random.Random(self.seed)
         rng.shuffle(indices)
         indices = indices[self.offset:self.offset + self.max_count] if self.max_count is not None else indices[self.offset:]
         indice_map = {i:pos for pos,i in enumerate(indices)}
         output = [None]*len(indice_map)
         n_found = 0
-        for i, record_proxy in enumerate(self._iter_record_proxy()):
+        for i, record_proxy in tqdm(enumerate(self._iter_record_proxy())):
             if i in indice_map:
                 idx, record = self._load_and_process_record(record_proxy)
                 output[indice_map[i]] = self._generate_entry(idx, record)
@@ -109,7 +82,7 @@ class ReaderOp(SourceOp, ABC):
                 yield entry
     def generate_batch_unshuffled(self)->Iterator[Entry]:
         assert not self.shuffle
-        for i,record_proxy in enumerate(self._iter_record_proxy()):
+        for i,record_proxy in tqdm(enumerate(self._iter_record_proxy())):
             if i < self.offset:
                 continue
             if self.max_count is not None and i >= self.offset + self.max_count:
@@ -188,6 +161,7 @@ def generate_idx_from_dict(record, idx_key, hash_keys) -> str:
     else:
         raise ValueError("Must specify either idx_key or hash_keys to generate unique indices for entries.")
 
+
 @show_in_op_list
 class ReadParquet(ReaderOp):
     """Read Parquet files."""
@@ -250,7 +224,8 @@ class ReadParquet(ReaderOp):
         if row_group_index != self._last_row_group_index:
             self._last_row_group = self._current_pq_file.read_row_group(row_group_index)
             self._last_row_group_index = row_group_index
-        record = self._last_row_group[row_index].as_py()
+        record = self._last_row_group.slice(row_index,1).to_pydict()
+        record = {k: v[0] for k, v in record.items()}
         idx = generate_idx_from_dict(record, self.idx_key, self.hash_keys)
         return idx, record
 
