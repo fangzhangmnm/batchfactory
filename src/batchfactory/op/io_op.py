@@ -380,7 +380,7 @@ class ReadMarkdownLines(ReaderOp):
             for headings, keyword in iter_markdown_lines(path):
                 yield filename, headings, keyword
     def _estimate_size(self) -> int:
-        return sum(1 for _ in self._iter_raw_records())
+        return sum(1 for _ in self._iter_record_proxy())
     def _load_and_process_record(self, record:Tuple):
         filename, headings, keyword = record
         idx = generate_idx_from_strings([filename]+headings+[keyword])
@@ -484,7 +484,7 @@ class ReadMarkdownEntries(ReaderOp):
                     continue
                 yield filename, headings, text
     def _estimate_size(self) -> int:
-        return sum(1 for _ in self._iter_raw_records())
+        return sum(1 for _ in self._iter_record_proxy())
     def _load_and_process_record(self, record):
         filename, headings, text = record
         if self.include_text_in_idx_hash:
