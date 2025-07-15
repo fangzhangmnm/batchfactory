@@ -26,7 +26,10 @@ def repr_entry(entry: Entry) -> str:
     s = ""
     s+=f"Entry {entry.idx} (rev {entry.rev})\n"
     for k,v in entry.data.items():
-        s+=f"  {k}: {ReprUtil.repr_item(v,max_len=50)}\n"
+        if isinstance(v,list):
+            s+=f"  {k}: {ReprUtil.repr_list(v,max_len=3)}\n"
+        else:
+            s+=f"  {k}: {ReprUtil.repr_item(v,max_len=50)}\n"
     return s
         
 __all__ = [

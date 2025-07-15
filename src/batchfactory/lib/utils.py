@@ -323,6 +323,16 @@ class ReprUtil:
         if isinstance(g, Path): g = str(g)
         g = g.rsplit('\\', 1)[-1].rsplit('/', 1)[-1]
         return ReprUtil.repr_str(g, max_len=max_len)
+    @staticmethod
+    def repr_list(lst: Iterable[Any], max_len=3) -> str:
+        s = "["
+        for i, item in enumerate(lst):
+            if i >= max_len:
+                s += "..."
+                break
+            s += ReprUtil.repr_item(item) + ", "
+        s = s.rstrip(", ") + "]"
+        return s
 
 
 def download_if_missing(url, path, binary=False, headers=None):
