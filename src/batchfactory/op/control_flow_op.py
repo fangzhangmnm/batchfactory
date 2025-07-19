@@ -342,7 +342,7 @@ class CollectAllToList(CollectAllOp):
         zipped_output_lists = []
         for spawn_idx in master_entry.data[self.spawn_idx_list_key]:
             zipped_output_lists.append(KeysUtil.read_dict(spawn_bundle[spawn_idx].data, self.in_items_keys))
-        KeysUtil.write_dict(master_entry.data, self.out_lists_keys, *zip(*zipped_output_lists))
+        KeysUtil.write_dict(master_entry.data, self.out_lists_keys, *[list(col) for col in zip(*zipped_output_lists)])
         
 @show_in_op_list(highlight=True)
 def ListParallel(spawn_body:'Graph|BaseOp',

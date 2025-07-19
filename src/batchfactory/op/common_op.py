@@ -167,6 +167,19 @@ class TakeFirstN(BatchOp):
     def _args_repr(self): return f"n={self.n}"
     def update_batch(self, entries: Dict[str, Entry]) -> Iterator[Entry]:
         return islice(entries.values(), self.offset, self.offset + self.n)
+    
+@show_in_op_list
+class SamplePropotion(BatchOp):
+    def __init__(self, p:float, *, seed:int, barrier_level = 1):
+        super().__init__(consume_all_batch=True, barrier_level=barrier_level)
+        self.p = p
+        self.seed = seed
+    def _args_repr(self): return f"p={self.p}"
+    def update_batch(self, entries: Dict[str, Entry]) -> Iterator[Entry]:
+        rng = random.Random(self.seed)
+        for entry in entries.values():
+            if rng.random() < self.p:
+                yield entry
 
     
 @show_in_op_list
@@ -205,5 +218,6 @@ __all__ = [
     "RenameField",
     "Shuffle",
     "Sort",
-    "TakeFirstN"
+    "TakeFirstN",
+    "SamplePropotion",
 ]

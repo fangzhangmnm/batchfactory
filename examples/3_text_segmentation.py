@@ -32,15 +32,15 @@ model = "gpt-4o-mini@openai" # for demo only, need a better model for this task
 
 def create_input_chunks(text):
     lines = F.lines(text)
-    lines = F.label_line_numbers(lines)
-    chunks = F.chunk_lines(lines, chunk_length=8192)
-    return [F.join_lines(chunk) for chunk in chunks]
+    lines = F.tag_texts_with_numbers(lines)
+    chunks = F.chunk_texts(lines, chunk_length=8192)
+    return [F.join_texts(chunk) for chunk in chunks]
 
 def post_processing(text, labels):
     lines = F.lines(text)
     labels = F.flatten_list(labels)
     chunks = F.split_lines(lines, labels)
-    return [F.join_lines(chunk,separator="\n\n") for chunk in chunks], labels
+    return [F.join_texts(chunk,separator="\n\n") for chunk in chunks], labels
 
 
 with bf.ProjectFolder("text_segmentation", 1, 0, 5) as project:

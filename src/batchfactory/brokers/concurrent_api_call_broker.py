@@ -107,6 +107,9 @@ class ConcurrentAPICallBroker(ImmediateBroker, ABC):
             self.concurrency_semaphore = None
             self.rate_limiter = None
             self.pbar = None
+            for task in workers:
+                if not task.done():
+                    task.cancel()
             await self._output_and_reset_statistics()
 
         
