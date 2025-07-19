@@ -17,6 +17,14 @@ def label_texts(texts:List[str],*,offset=1):
     """Label each text with a number, starting from `offset`."""
     return [f"{i + offset}: {text}" for i, text in enumerate(texts)]
 
+def label_multiline_texts(texts:List[str], *, offset=1) -> List[str]:
+    """Label each multiline text with a number, starting from `offset`."""
+    labeled_texts = []
+    for i, text in enumerate(texts):
+        text = f"{i + offset}:\n{text}\n\n"
+        labeled_texts.append(text)
+    return labeled_texts
+
 def group_texts_by_length(texts:List[str], *, chunk_length) -> List[List[str]]:
     "Group texts by suggested chunk_length. (May exceed if a single line is too long)"
     groups = [[]]
@@ -44,7 +52,7 @@ def create_parent_map_by_labels(labels:List[int],total_num:int, *, offset=1)->Di
     parent_map = {}
     current_parent = offset-1
     for i in range(total_num):
-        if i + offset in labels:
+        if i + offset in labels or i==0:
             current_parent += 1
         parent_map[i + offset] = current_parent
     return parent_map
@@ -68,8 +76,11 @@ def label_and_chunk_lines(text:str, chunk_length:int) -> List[str]:
     lines = F.lines(text, non_empty=True, strip=False)
     return label_and_chunk_texts(lines, chunk_length=chunk_length)
 
-def label_and_chunk_texts(texts:List[str], chunk_length:int) -> List[str]:
-    texts = label_texts(texts)
+def label_and_chunk_texts(texts:List[str], chunk_length:int, multiline=False) -> List[str]:
+    if multiline:
+        texts = label_multiline_texts(texts)
+    else:
+        texts = label_texts(texts)
     groups = group_texts_by_length(texts, chunk_length=chunk_length)
     chunks = [join_texts(group) for group in groups]
     return chunks
