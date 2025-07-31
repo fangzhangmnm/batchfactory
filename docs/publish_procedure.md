@@ -1,0 +1,5 @@
+- `python -m batchfactory --update_doc`
+- increase patch version by 1 in `pyproject.toml`
+- `python -m build`
+- inspect package
+- `python -m twine upload dist/*`

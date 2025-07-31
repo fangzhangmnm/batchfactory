@@ -106,6 +106,8 @@ class ExtractResponseText(ApplyOp):
         self.input_key = input_key
         self.output_key = output_key
     def update(self, entry: Entry) -> None:
+        # print(entry.data['llm_request'])
+        # print(entry.data['llm_response'])
         llm_response = entry.data.get(self.input_key, None)
         llm_response:LLMResponse = LLMResponse.model_validate(llm_response)
         entry.data[self.output_key] = llm_response.message.content

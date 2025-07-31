@@ -179,6 +179,7 @@ g |= EmbedText("keyword", model="text-embedding-3-small@openai", output_format="
 | `RenameField` | Rename fields in the entry data. |
 | `Repeat` | Repeat the loop body for a fixed number of rounds. |
 | `Replicate` | Replicate an entry to all output ports. |
+| `SamplePropotion` | No documentation available |
 | `SetField` | Set fields in the entry data to specific values. |
 | `Shuffle` | Shuffle the entries in a batch randomly. |
 | `Sort` | Sort the entries in a batch |
